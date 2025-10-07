@@ -2,66 +2,54 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
-import crypto from "crypto";
 import User from "./models/User.js";
 
 const app = express();
-app.use(cors({ origin: true, credentials: true }));
+
+// ✅ Настройки CORS — впиши сюда домен своего фронта
+const allowedOrigins = [
+  "https://moonlit-sunshine-36a99e.netlify.app",
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("CORS blocked for this origin"));
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"]
+}));
+
 app.use(express.json({ limit: "1mb" }));
 
-// проверка initData (WebAppData)
-function verifyTelegramInitData(initData, botToken) {
-  if (!initData || !botToken) return null;
+// ✅ Healthcheck
+app.get("/ping", (_, res) => res.json({ ok: true }));
 
-  const urlParams = new URLSearchParams(initData);
-  const hash = urlParams.get("hash");
-  if (!hash) return null;
-  urlParams.delete("hash");
+// ✅ Подключение к MongoDB Atlas
+const mongoURI = process.env.MONGODB_URI;
+mongoose.connect(mongoURI, {
+  serverSelectionTimeoutMS: 8000,
+  socketTimeoutMS: 8000
+})
+.then(() => console.log("✅ MongoDB connected"))
+.catch((err) => console.error("❌ MongoDB connection error:", err.message));
 
-  const dataCheckString = Array.from(urlParams.keys())
-    .sort()
-    .map((k) => `${k}=${urlParams.get(k)}`)
-    .join("\n");
-
-  const secretKey = crypto
-    .createHmac("sha256", "WebAppData")
-    .update(botToken)
-    .digest();
-
-  const calcHash = crypto
-    .createHmac("sha256", secretKey)
-    .update(dataCheckString)
-    .digest("hex");
-
-  if (calcHash !== hash) return null;
-
+// ✅ Основной эндпоинт — сохраняет или обновляет пользователя
+app.post("/register-user", async (req, res) => {
   try {
-    const userJson = urlParams.get("user");
-    return userJson ? JSON.parse(userJson) : null;
-  } catch {
-    return null;
-  }
-}
+    const { telegramId, username, firstName, lastName, photoUrl } = req.body || {};
 
-await mongoose.connect(process.env.MONGODB_URI);
-
-// upsert + вернуть пользователя
-app.post("/api/auth/upsert", async (req, res) => {
-  try {
-    const { initData } = req.body || {};
-    const verified = verifyTelegramInitData(initData, process.env.TELEGRAM_BOT_TOKEN);
-    if (!verified?.id) {
-      return res.status(401).json({ ok: false, error: "Invalid initData" });
+    if (!telegramId) {
+      return res.status(400).json({ ok: false, error: "telegramId is required" });
     }
 
-    const doc = await User.findOneAndUpdate(
-      { telegramId: String(verified.id) },
+    const user = await User.findOneAndUpdate(
+      { telegramId: String(telegramId) },
       {
-        firstName: verified.first_name || null,
-        lastName: verified.last_name || null,
-        username: verified.username || null,
-        languageCode: verified.language_code || null,
-        photoUrl: verified.photo_url || null
+        username: username ?? null,
+        firstName: firstName ?? null,
+        lastName: lastName ?? null,
+        photoUrl: photoUrl ?? null
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
@@ -69,20 +57,21 @@ app.post("/api/auth/upsert", async (req, res) => {
     res.json({
       ok: true,
       user: {
-        telegramId: doc.telegramId,
-        firstName: doc.firstName,
-        lastName: doc.lastName,
-        username: doc.username,
-        languageCode: doc.languageCode,
-        photoUrl: doc.photoUrl
+        telegramId: user.telegramId,
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        photoUrl: user.photoUrl
       }
     });
-  } catch (e) {
-    console.error(e);
+  } catch (error) {
+    console.error("❌ register-user error:", error);
     res.status(500).json({ ok: false, error: "Server error" });
   }
 });
 
-app.listen(process.env.PORT, () => {
-  console.log(`API listening on http://localhost:${process.env.PORT}`);
+// ✅ Запуск сервера
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server listening on http://0.0.0.0:${PORT}`);
 });
