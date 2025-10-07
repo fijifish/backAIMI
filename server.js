@@ -16,6 +16,7 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // ✅ Проверка
 app.get("/ping", (_, res) => res.json({ ok: true }));
+app.get("/", (_, res) => res.type("text/plain").send("OK"));
 
 // ✅ Регистрируем пользователя (как в Octys)
 app.post("/register-user", async (req, res) => {
@@ -75,7 +76,7 @@ app.get("/get-user", async (req, res) => {
 });
 
 // ✅ Запуск сервера
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
