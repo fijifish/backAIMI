@@ -17,6 +17,8 @@ mongoose.connect(process.env.MONGODB_URI)
 // ✅ Проверка
 app.get("/ping", (_, res) => res.json({ ok: true }));
 app.get("/", (_, res) => res.type("text/plain").send("OK"));
+app.get("/tasks/channel/verify", (_req, res) => res.status(405).json({ ok:false, error:"Use POST" }));
+app.post("/tasks/channel/verify", (_req, res) => res.json({ ok:true, status:"stub" }));
 
 // ✅ Регистрируем пользователя (как в Octys)
 app.post("/register-user", async (req, res) => {
