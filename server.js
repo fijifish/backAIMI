@@ -7,18 +7,26 @@ import User from "./models/User.js";
 const app = express();
 
 // ✅ Настройки CORS — впиши сюда домен своего фронта
-const allowedOrigins = [
-  "https://moonlit-sunshine-36a99e.netlify.app",
-];
+// ✅ CORS — мягкая обработка, чтобы префлайт (OPTIONS) не падал 502
+const allowedOrigins = new Set([
+  "https://moonlit-sunshine-36a99e.netlify.app", // прод фронт
+  "http://localhost:5173"                         // dev фронт (Vite)
+]);
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error("CORS blocked for this origin"));
+const corsOptions = {
+  origin(origin, cb) {
+    // Разрешаем запросы без Origin (curl, сервер-сервер) и из списка
+    if (!origin || allowedOrigins.has(origin)) return cb(null, true);
+    // Не кидаем ошибку, просто запрещаем CORS — браузер сам блокирует
+    return cb(null, false);
   },
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"]
-}));
+  allowedHeaders: ["Content-Type"],
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // явная обработка префлайта
 
 app.use(express.json({ limit: "1mb" }));
 
