@@ -6,7 +6,13 @@ const userSchema = new mongoose.Schema(
     username:   { type: String, default: null },
     firstName:  { type: String, default: null },
     lastName:   { type: String, default: null },
-    photoUrl:   { type: String, default: null }
+    photoUrl:   { type: String, default: null },
+
+    balanceTon: { type: Number, default: 0 },
+
+    tasks: {
+      channelSubscribed: { type: Boolean, default: false },
+    },
   },
   { timestamps: true }
 );
