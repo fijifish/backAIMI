@@ -110,7 +110,7 @@ app.post("/tasks/channel/verify", async (req, res) => {
     // Атомарно — чтобы не начислить дважды на гонках
     const upd = await User.updateOne(
       { telegramId: String(telegramId), "tasks.channelSubscribed": { $ne: true } },
-      { $inc: { balanceUsdt: Number(process.env.CHANNEL_REWARD_USDT || 0) },
+      { $inc: { balanceTon: Number(process.env.CHANNEL_REWARD_TON || 0) },
         $set: { "tasks.channelSubscribed": true } }
     );
 
@@ -119,7 +119,7 @@ app.post("/tasks/channel/verify", async (req, res) => {
     }
 
     const fresh = await User.findOne({ telegramId: String(telegramId) });
-    return res.json({ ok:true, status:"rewarded", reward:{ usdt:Number(process.env.CHANNEL_REWARD_Usdt||0) }, user:fresh });
+    return res.json({ ok:true, status:"rewarded", reward:{ ton:Number(process.env.CHANNEL_REWARD_TON||0) }, user:fresh });
   } catch (e) {
     console.error("/tasks/channel/verify error:", e);
     res.status(500).json({ ok:false, error:"Server error" });

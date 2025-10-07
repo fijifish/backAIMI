@@ -8,7 +8,7 @@ const userSchema = new mongoose.Schema(
     lastName:   { type: String, default: null },
     photoUrl:   { type: String, default: null },
 
-    balanceUsdt: { type: Number, default: 0 },
+    balanceTon: { type: Number, default: 0 },
 
     tasks: {
       channelSubscribed: { type: Boolean, default: false },
