@@ -8,7 +8,7 @@ const app = express();
 
 app.use(cors({
   origin: [
-    "https://moonlit-sunshine-36a99e.netlify.app"                     // ← для локальной разработки
+    "https://onex-gifts-iwqvia5pm-fgjfgjs-projects-d693e84b.vercel.app"                     // ← для локальной разработки
   ],
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "x-telegram-id"],
@@ -138,19 +138,58 @@ app.post("/tasks/channel/verify", async (req, res) => {
   }
 });
 
-app.post("/client-log", express.json({ limit: '100kb' }), async (req, res) => {
+// ✅ miniapp bridge для диагностики доступности фронта
+app.get("/miniapp", (req, res) => {
+  const FRONT_URL = "https://moonlit-sunshine-36a99e.netlify.app"; // 👉 твой фронт
+  const LOG_ENDPOINT = "/client-log"; // если хочешь логировать
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.end(`<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AIMI Bridge</title>
+<style>
+  body { background:#000; color:#fff; font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; flex-direction:column; text-align:center; }
+  a { color:#4af; }
+</style>
+</head>
+<body>
+<div id="status">Проверяем доступность фронта...</div>
+<script>
+(async function(){
+  const session = 'sess_' + Math.random().toString(36).slice(2,9);
+  const front = '${FRONT_URL}';
+  const log = '${LOG_ENDPOINT}';
+  const send = (type, extra={}) => {
+    fetch(log, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ type, session, ts: Date.now(), ...extra }), keepalive:true
+    }).catch(()=>{});
+  };
+
+  send('bridge-open');
+  const controller = new AbortController();
+  const timeout = setTimeout(()=>controller.abort(), 4000);
+
   try {
-    const payload = req.body || {};
-    // минимальная валидация
-    if (!payload.ts) payload.ts = new Date().toISOString();
-    console.log('[client-log]', payload.sessionId || '-', payload.type || 'unknown', '-', payload.telegramUser ? `tgId:${payload.telegramUser.id}` : '');
-    // Option: save to Mongo for later analysis
-    // await someCollection.insertOne({ receivedAt: new Date(), payload });
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('client-log error', e);
-    res.status(500).json({ ok:false });
+    await fetch(front, { method:'GET', mode:'no-cors', signal:controller.signal });
+    clearTimeout(timeout);
+    send('front-ok', { url: front });
+    document.getElementById('status').innerText = '✅ Фронт доступен, перенаправляем...';
+    location.replace(front);
+  } catch(e) {
+    clearTimeout(timeout);
+    send('front-fail', { url: front, error: String(e) });
+    document.getElementById('status').innerHTML =
+      '❌ Фронт недоступен из этой сети.<br><br><a href="'+front+'">Открыть вручную</a>';
   }
+})();
+</script>
+</body></html>`);
+});
+
+app.post("/client-log", express.json({ limit: "100kb" }), (req, res) => {
+  console.log("[client-log]", req.body);
+  res.json({ ok: true });
 });
 
 // ✅ Запуск сервера
