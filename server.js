@@ -8,7 +8,7 @@ const app = express();
 
 app.use(cors({
   origin: [
-    "https://onex-gifts-iwqvia5pm-fgjfgjs-projects-d693e84b.vercel.app"                     // ← для локальной разработки
+    "https://onex-gifts.vercel.app"                     // ← для локальной разработки
   ],
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "x-telegram-id"],
