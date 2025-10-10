@@ -140,8 +140,12 @@ app.post("/tasks/channel/verify", async (req, res) => {
 
 // ✅ miniapp bridge для диагностики доступности фронта
 app.get("/miniapp", (req, res) => {
-  const FRONT_URL = "https://moonlit-sunshine-36a99e.netlify.app"; // 👉 твой фронт
-  const LOG_ENDPOINT = "/client-log"; // если хочешь логировать
+  // 👉 сюда добавляй зеркала по мере готовности
+  const MIRRORS = [
+    "https://moonlit-sunshine-36a99e.netlify.app",
+    "https://onex-gifts.vercel.app" // пример — твой прод на Vercel
+    // "https://your-custom-domain.com" // если заведёшь Cloudflare-прокси
+  ];
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.end(`<!doctype html>
@@ -149,39 +153,55 @@ app.get("/miniapp", (req, res) => {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AIMI Bridge</title>
 <style>
-  body { background:#000; color:#fff; font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; flex-direction:column; text-align:center; }
-  a { color:#4af; }
+  body{background:#000;color:#fff;font-family:-apple-system,system-ui,Segoe UI,Roboto,Arial;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;text-align:center}
+  a{color:#4af}
+  .hint{opacity:.7;font-size:14px;margin-top:8px}
 </style>
 </head>
 <body>
-<div id="status">Проверяем доступность фронта...</div>
+  <div id="status">Проверяем доступность фронта…</div>
+  <div class="hint">Если ожидание долгое, провайдер может резать трафик.</div>
 <script>
 (async function(){
-  const session = 'sess_' + Math.random().toString(36).slice(2,9);
-  const front = '${FRONT_URL}';
-  const log = '${LOG_ENDPOINT}';
-  const send = (type, extra={}) => {
-    fetch(log, { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ type, session, ts: Date.now(), ...extra }), keepalive:true
-    }).catch(()=>{});
-  };
+  const session = 'sess_'+Math.random().toString(36).slice(2,8);
+  const mirrors = ${JSON.stringify(MIRRORS)};
+  const LOG = "${req.protocol}://${req.get('host')}/client-log";
 
-  send('bridge-open');
-  const controller = new AbortController();
-  const timeout = setTimeout(()=>controller.abort(), 4000);
+  const log = (type, extra={}) =>
+    fetch(LOG, {method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(Object.assign({type, session, ts:Date.now()}, extra)),
+      keepalive:true}).catch(()=>{});
 
-  try {
-    await fetch(front, { method:'GET', mode:'no-cors', signal:controller.signal });
-    clearTimeout(timeout);
-    send('front-ok', { url: front });
-    document.getElementById('status').innerText = '✅ Фронт доступен, перенаправляем...';
-    location.replace(front);
-  } catch(e) {
-    clearTimeout(timeout);
-    send('front-fail', { url: front, error: String(e) });
-    document.getElementById('status').innerHTML =
-      '❌ Фронт недоступен из этой сети.<br><br><a href="'+front+'">Открыть вручную</a>';
+  log('bridge-open', {mirrors});
+
+  // маленький помощник с таймаутом
+  const probe = (url, timeoutMs=12000) => new Promise((resolve, reject)=>{
+    const ctrl = new AbortController();
+    const t = setTimeout(()=>ctrl.abort(), timeoutMs);
+    fetch(url, {mode:'no-cors', signal:ctrl.signal})
+      .then(()=>{ clearTimeout(t); resolve(url); })
+      .catch(err=>{ clearTimeout(t); reject({url, err:String(err)}); });
+  });
+
+  // пробуем зеркала по очереди (можно поменять на Promise.any)
+  for (const url of mirrors) {
+    document.getElementById('status').innerText = 'Пробуем: ' + url;
+    try {
+      await probe(url, 12000);
+      log('front-ok', {url});
+      location.replace(url);
+      return;
+    } catch(e){
+      log('front-fail', e);
+    }
   }
+
+  // если сюда дошли — ни одно зеркало не ответило вовремя
+  document.getElementById('status').innerHTML =
+    '❌ Фронт сейчас недоступен из вашей сети.<br><br>' +
+    mirrors.map(u => '<div><a href="'+u+'">'+u+'</a></div>').join('') +
+    '<div class="hint">Попробуйте другое зеркало или VPN.</div>';
 })();
 </script>
 </body></html>`);
