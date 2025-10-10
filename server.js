@@ -138,6 +138,21 @@ app.post("/tasks/channel/verify", async (req, res) => {
   }
 });
 
+app.post("/client-log", express.json({ limit: '100kb' }), async (req, res) => {
+  try {
+    const payload = req.body || {};
+    // минимальная валидация
+    if (!payload.ts) payload.ts = new Date().toISOString();
+    console.log('[client-log]', payload.sessionId || '-', payload.type || 'unknown', '-', payload.telegramUser ? `tgId:${payload.telegramUser.id}` : '');
+    // Option: save to Mongo for later analysis
+    // await someCollection.insertOne({ receivedAt: new Date(), payload });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('client-log error', e);
+    res.status(500).json({ ok:false });
+  }
+});
+
 // ✅ Запуск сервера
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
