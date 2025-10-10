@@ -6,8 +6,20 @@ import User from "./models/User.js";
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: [
+    "https://moonlit-sunshine-36a99e.netlify.app"                     // ← для локальной разработки
+  ],
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "x-telegram-id"],
+  optionsSuccessStatus: 204
+}));
+
+// ✅ Чтобы preflight-запросы OPTIONS не ломали бэкенд
+app.options("*", cors());
+
+// ✅ Парсим JSON в body
+app.use(express.json({ limit: "1mb" }));
 
 // ✅ Подключение к MongoDB
 mongoose.connect(process.env.MONGODB_URI)
