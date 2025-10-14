@@ -138,79 +138,64 @@ app.post("/tasks/channel/verify", async (req, res) => {
   }
 });
 
-// // ✅ miniapp bridge для диагностики доступности фронта
-// app.get("/miniapp", (req, res) => {
-//   // 👉 сюда добавляй зеркала по мере готовности
-//   const MIRRORS = [
-//     "https://moonlit-sunshine-36a99e.netlify.app",
-//     "https://onex-gifts.vercel.app" // пример — твой прод на Vercel
-//     // "https://your-custom-domain.com" // если заведёшь Cloudflare-прокси
-//   ];
+// ✅ Создание заявки на вывод
+app.post("/withdraw/create", async (req, res) => {
+  try {
+    const { telegramId, amount, address } = req.body || {};
+    if (!telegramId) return res.status(400).json({ ok:false, error: "telegramId is required" });
 
-//   res.setHeader("Content-Type", "text/html; charset=utf-8");
-//   res.end(`<!doctype html>
-// <html><head><meta charset="utf-8">
-// <meta name="viewport" content="width=device-width,initial-scale=1">
-// <title>AIMI Bridge</title>
-// <style>
-//   body{background:#000;color:#fff;font-family:-apple-system,system-ui,Segoe UI,Roboto,Arial;
-//        display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;text-align:center}
-//   a{color:#4af}
-//   .hint{opacity:.7;font-size:14px;margin-top:8px}
-// </style>
-// </head>
-// <body>
-//   <div id="status">Проверяем доступность фронта…</div>
-//   <div class="hint">Если ожидание долгое, провайдер может резать трафик.</div>
-// <script>
-// (async function(){
-//   const session = 'sess_'+Math.random().toString(36).slice(2,8);
-//   const mirrors = ${JSON.stringify(MIRRORS)};
-//   const LOG = "${req.protocol}://${req.get('host')}/client-log";
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return res.status(400).json({ ok:false, error: "Invalid amount" });
+    }
 
-//   const log = (type, extra={}) =>
-//     fetch(LOG, {method:'POST',headers:{'Content-Type':'application/json'},
-//       body: JSON.stringify(Object.assign({type, session, ts:Date.now()}, extra)),
-//       keepalive:true}).catch(()=>{});
+    // лёгкая валидация TRC20 (адреса Tron в Base58, начинаются с T, длина 34)
+    const addr = String(address || "").trim();
+    const isTron = /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr);
+    if (!isTron) {
+      return res.status(400).json({ ok:false, error: "Invalid TRC20 address" });
+    }
 
-//   log('bridge-open', {mirrors});
+    const user = await User.findOne({ telegramId: String(telegramId) });
+    if (!user) return res.status(404).json({ ok:false, error: "User not found" });
 
-//   // маленький помощник с таймаутом
-//   const probe = (url, timeoutMs=12000) => new Promise((resolve, reject)=>{
-//     const ctrl = new AbortController();
-//     const t = setTimeout(()=>ctrl.abort(), timeoutMs);
-//     fetch(url, {mode:'no-cors', signal:ctrl.signal})
-//       .then(()=>{ clearTimeout(t); resolve(url); })
-//       .catch(err=>{ clearTimeout(t); reject({url, err:String(err)}); });
-//   });
+    const order = {
+      _id: new mongoose.Types.ObjectId(),
+      amount: amt,                 // сумма в USDT (как ты и хочешь)
+      currency: "USDT",
+      address: addr,
+      status: "в обработке",       // начальный статус
+      createdAt: new Date()
+    };
 
-//   // пробуем зеркала по очереди (можно поменять на Promise.any)
-//   for (const url of mirrors) {
-//     document.getElementById('status').innerText = 'Пробуем: ' + url;
-//     try {
-//       await probe(url, 12000);
-//       log('front-ok', {url});
-//       location.replace(url);
-//       return;
-//     } catch(e){
-//       log('front-fail', e);
-//     }
-//   }
+    await User.updateOne(
+      { telegramId: String(telegramId) },
+      { $push: { withdrawOrders: { $each: [order], $position: 0 } } } // добавим в начало массива
+    );
 
-//   // если сюда дошли — ни одно зеркало не ответило вовремя
-//   document.getElementById('status').innerHTML =
-//     '❌ Фронт сейчас недоступен из вашей сети.<br><br>' +
-//     mirrors.map(u => '<div><a href="'+u+'">'+u+'</a></div>').join('') +
-//     '<div class="hint">Попробуйте другое зеркало или VPN.</div>';
-// })();
-// </script>
-// </body></html>`);
-// });
+    return res.json({ ok: true, order });
+  } catch (e) {
+    console.error("POST /withdraw/create error:", e);
+    res.status(500).json({ ok:false, error:"Server error" });
+  }
+});
 
-// app.post("/client-log", express.json({ limit: "100kb" }), (req, res) => {
-//   console.log("[client-log]", req.body);
-//   res.json({ ok: true });
-// });
+// ✅ Список заявок пользователя
+app.get("/withdraw/list", async (req, res) => {
+  try {
+    const { telegramId } = req.query || {};
+    if (!telegramId) return res.status(400).json({ ok:false, error: "telegramId is required" });
+
+    const user = await User.findOne({ telegramId: String(telegramId) }).lean();
+    if (!user) return res.status(404).json({ ok:false, error: "User not found" });
+
+    const orders = Array.isArray(user.withdrawOrders) ? user.withdrawOrders : [];
+    res.json({ ok:true, orders });
+  } catch (e) {
+    console.error("GET /withdraw/list error:", e);
+    res.status(500).json({ ok:false, error:"Server error" });
+  }
+});
 
 // ✅ Запуск сервера
 const PORT = process.env.PORT || 8080;

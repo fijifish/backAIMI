@@ -13,6 +13,17 @@ const userSchema = new mongoose.Schema(
     tasks: {
       channelSubscribed: { type: Boolean, default: false },
     },
+
+    withdrawOrders: [
+    {
+        _id: { type: mongoose.Schema.Types.ObjectId, auto: false },
+        amount: Number,               // USDT
+        currency: { type: String, default: "USDT" },
+        address: String,              // TRC20
+        status: { type: String, default: "в обработке" }, // "выполнен" | "отклонён"
+        createdAt: { type: Date, default: Date.now }
+    }
+    ],
   },
   { timestamps: true }
 );
