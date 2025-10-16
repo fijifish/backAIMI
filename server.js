@@ -262,7 +262,7 @@ app.get("/postback/jetton", async (req, res) => {
       tx_id                  // уникальный id транзакции (используем для идемпотентности)
     } = req.query;
 
-    // 1) Сначала пытаемся найти по Telegram ID
+    // Найдём пользователя по telegramId (предпочтительно)
     const telegramId = (player_telegram_id && player_telegram_id !== "0")
       ? String(player_telegram_id)
       : null;
@@ -271,60 +271,50 @@ app.get("/postback/jetton", async (req, res) => {
       ? await User.findOne({ telegramId })
       : null;
 
-    // 2) Fallback: если Telegram ID нет, сопоставим по click_slug (мы заранее кладём свой click_id в traffic.clickIds)
-    if (!user && click_slug) {
-      user = await User.findOne({ "traffic.clickIds": click_slug });
-      if (user && telegramId) {
-        await User.updateOne({ _id: user._id }, { telegramId });
-      }
-    }
-
-    // 3) Если нашли — запишем трафик-метки
+    // Если нашли — можно обновить трафик-поля (по желанию):
     if (user) {
       const trafficUpdate = {};
       if (promo_slug) trafficUpdate["traffic.promo_slug"] = promo_slug;
-      if (click_slug) {
-        trafficUpdate["traffic.click_slug"] = click_slug;
-        trafficUpdate.$addToSet = { ...(trafficUpdate.$addToSet || {}), "traffic.clickIds": click_slug };
-      }
+      if (click_slug) trafficUpdate["traffic.click_slug"] = click_slug;
       if (Object.keys(trafficUpdate).length) {
         await User.updateOne({ _id: user._id }, trafficUpdate);
       }
     }
 
-    // 4) Если пользователя не нашли — возвращаем 200, чтобы Jetton не перестал слать
+    // Если юзер не найден, можно тихо завершить (OK) или создать аккаунт.
     if (!user) {
       return res.status(200).send("OK: user_not_found");
     }
 
-    // 5) Идемпотентность по tx_id
+    // Идемпотентность: если приходил такой tx_id — повтор не обрабатываем.
     if (tx_id && user.deposits?.lastTxId === tx_id) {
       return res.status(200).send("OK: duplicate_tx_id");
     }
 
-    // 6) Интересуют только депозиты
+    // Интересны только события депозита
     const isDepositEvent = action === "first_deposit" || action === "deposit";
     if (!isDepositEvent) {
+      // Можно логировать register/withdraw, если надо
       return res.status(200).send("OK");
     }
 
     const usd = Number(amount_usd || 0);
 
+    // Базовое обновление агрегатов депозитов
     const update = {
       "deposits.lastTxId": tx_id || null,
       $inc: { "deposits.count": 1, "deposits.totalUsd": usd }
     };
 
-    // 7) Метка первого депозита
+    // Если это первый депозит — поставим дату первого депозита
     const isFirstByAction = action === "first_deposit";
     if (isFirstByAction && !user.deposits.firstDepositAt) {
       update["deposits.firstDepositAt"] = new Date();
     }
 
-    // 8) Награда за первый депозит (если используешь)
-    if (isFirstByAction && !user.rewards?.firstDepositGranted) {
-      update.$inc = update.$inc || {};
-      update.$inc.balanceTon = FIRST_DEPOSIT_REWARD_USDT; // USDT-эквивалент в твоей модели
+    // Награда за первый депозит — один раз
+    if (isFirstByAction && !user.rewards.firstDepositGranted) {
+      update.$inc.balanceTon = FIRST_DEPOSIT_REWARD_USDT;       
       update["rewards.firstDepositGranted"] = true;
       update["rewards.firstDepositAmount"]  = FIRST_DEPOSIT_REWARD_USDT;
     }
@@ -334,12 +324,60 @@ app.get("/postback/jetton", async (req, res) => {
     return res.status(200).send("OK");
   } catch (e) {
     console.error("postback error:", e);
-    return res.status(200).send("ERROR"); // Jetton обычно не ретраит по 500
+    return res.status(200).send("ERROR"); 
   }
 });
 
-// ✅ Проверка депозита из БД для кнопки ПРОВЕРИТЬ (Jetton/Mostbet/и др.)
-// GET /check-casino-deposit?userId=123&minUsd=5
+
+app.post("/rewards/first-deposit/reconcile", async (req, res) => {
+  try {
+    const { telegramId } = req.body || {};
+    if (!telegramId) return res.status(400).json({ ok:false, error:"telegramId is required" });
+
+    const user = await User.findOne({ telegramId: String(telegramId) });
+    if (!user) return res.status(404).json({ ok:false, error:"User not found" });
+
+    if (user.rewards?.firstDepositGranted) {
+      return res.json({ ok:true, status:"already_granted", user });
+    }
+
+    const hadAnyDeposit =
+      Boolean(user.deposits?.firstDepositAt) ||
+      (Number(user.deposits?.count || 0) > 0) ||
+      (Number(user.deposits?.totalUsd || 0) > 0);
+
+    if (!hadAnyDeposit) {
+      // депозита не видим — ничего не начисляем
+      return res.json({ ok:true, status:"no_deposit_detected" });
+    }
+
+    // идемпотентное начисление
+    const upd = await User.updateOne(
+      { _id: user._id, "rewards.firstDepositGranted": { $ne: true } },
+      {
+        $inc: { balanceTon: FIRST_DEPOSIT_REWARD_USDT },
+        $set: {
+          "rewards.firstDepositGranted": true,
+          "rewards.firstDepositAmount": FIRST_DEPOSIT_REWARD_USDT,
+
+          "deposits.firstDepositAt": user.deposits?.firstDepositAt || new Date()
+        }
+      }
+    );
+
+    if (upd.modifiedCount === 0) {
+      return res.json({ ok:true, status:"already_granted" });
+    }
+
+    const fresh = await User.findOne({ _id: user._id });
+    return res.json({ ok:true, status:"granted", reward: FIRST_DEPOSIT_REWARD_USDT, user: fresh });
+  } catch (e) {
+    console.error("/rewards/first-deposit/reconcile error:", e);
+    res.status(500).json({ ok:false, error:"Server error" });
+  }
+});
+
+
 app.get("/check-casino-deposit", async (req, res) => {
   try {
     const { userId, minUsd } = req.query;
@@ -352,27 +390,28 @@ app.get("/check-casino-deposit", async (req, res) => {
     const totalUsd = Number(user.deposits?.totalUsd || 0);
     const firstDepositAt = user.deposits?.firstDepositAt || null;
 
-    // Санитизация minUsd: поддерживаем "5", "5$", "5 дол", "5,5"
-    let threshold = null;
-    if (minUsd !== undefined && minUsd !== null && String(minUsd).trim() !== "") {
-      const cleaned = String(minUsd).trim().replace(",", ".").replace(/[^0-9.]/g, "");
-      const parsed = parseFloat(cleaned);
-      if (Number.isFinite(parsed) && parsed > 0) threshold = parsed;
-    }
+    // Жёсткая проверка порога: если он задан (>0), требуем totalUsd >= minUsd
+    const threshold = (minUsd !== undefined && minUsd !== null && String(minUsd).trim() !== "")
+      ? Number(minUsd)
+      : null;
 
-    let deposited = false;
+    let deposited;
     let reason = "";
 
-    if (threshold !== null) {
+    if (threshold !== null && Number.isFinite(threshold) && threshold > 0) {
       deposited = totalUsd >= threshold;
-      if (!deposited) reason = `threshold_not_met: totalUsd=${totalUsd}, required=${threshold}`;
+      if (!deposited) {
+        reason = `threshold_not_met: totalUsd=${totalUsd}, required=${threshold}`;
+      }
     } else {
-      // Без порога: любой факт депозита считается достаточным для «первого депозита»
+      // Без порога: считаем депозит свершившимся по любому из признаков
       deposited = count > 0 || totalUsd > 0 || Boolean(firstDepositAt);
-      if (!deposited) reason = "no_deposit";
+      if (!deposited) {
+        reason = "no_deposit";
+      }
     }
 
-    return res.json({ ok:true, deposited, count, totalUsd, firstDepositAt, minUsd: threshold, reason });
+    return res.json({ ok: true, deposited, count, totalUsd, firstDepositAt, minUsd: threshold, reason });
   } catch (e) {
     console.error("❌ /check-casino-deposit error:", e);
     return res.status(500).json({ ok:false, error: "Server error" });
