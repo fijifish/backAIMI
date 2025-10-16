@@ -173,11 +173,14 @@ app.post("/register-user", async (req, res) => {
       const code = await ensureUserRefCode(newUser);
       await attachReferralIfAny(newUser, ref);  // ref уже приходит из тела запроса
 
+      // перечитаем пользователя, чтобы в уведомлении был инвайтер сразу при первом входе
+      const freshAfterRef = await User.findById(newUser._id).lean();
+
       try {
-        await notifyAppOpen(newUser);
+        await notifyAppOpen(freshAfterRef || newUser);
       } catch (e) { console.error("notify app_open (new) error:", e); }
       await User.updateOne({ _id: newUser._id }, { $set: { lastSeenAt: new Date(), "notify.lastAppOpenAt": new Date() } });
-      return res.json({ ok: true, user: newUser });
+      return res.json({ ok: true, user: freshAfterRef || newUser });
     }
 
     // Если пользователь уже есть — обновляем
