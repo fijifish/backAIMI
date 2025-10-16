@@ -36,7 +36,7 @@ async function notifyAppOpen(user) {
   const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
   const name = user?.firstName ? ` (${user.firstName})` : "";
   const when = new Date().toLocaleString("ru-RU");
-  const text = `👤 <b>\nПользователь открыл приложение\n• ${u}${name}\n🕒 ${when}</b>`;
+  const text = `\nПользователь открыл приложение\n\n• ${u}${name}\n\n🕒 ${when}`;
   await sendTG(text);
 }
 
