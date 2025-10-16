@@ -65,7 +65,7 @@ async function attachReferralIfAny(newUser, refRaw) {
     { _id: newUser._id, "referral.referredBy": { $in: [null, undefined] } },
     {
       $set: {
-        "referral.referredBy": String(inviter.telegramId),
+        "referral.referredBy": inviter?.username ? String(inviter.username) : String(inviter.telegramId),
         "referral.referredByCode": inviter.referral?.code || null,
         "referral.referredAt": new Date(),
       }
@@ -625,7 +625,7 @@ app.get("/referral-info", async (req, res) => {
     const bot = process.env.TELEGRAM_BOT_USERNAME || ""; // без @
     const code = user.referral.code;
     const tgLink = bot ? `https://t.me/${bot}?start=ref_${code}` : null;
-    const webAppLink = bot ? `https://t.me/${bot}/${process.env.TELEGRAM_WEBAPP_PATH || ''}?startapp=ref_${code}` : null;
+    const webAppLink = bot ? `https://t.me/${bot}/${process.env.TELEGRAM_WEBAPP_PATH}?startapp=ref_${code}` : null;
 
     res.json({
       ok: true,
