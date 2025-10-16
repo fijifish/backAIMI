@@ -632,7 +632,7 @@ app.get("/referral-info", async (req, res) => {
       code,
       links: { tg: tgLink, webapp: webAppLink },
       stats: {
-        referredBy: user?.referral?.referredBy || null,
+        referredBy: inviter?.username ? String(inviter.username) : String(inviter.telegramId) || null,
         referralsCount: user?.referral?.referralsCount || 0,
         referrals: user?.referral?.referrals || [],
       }
