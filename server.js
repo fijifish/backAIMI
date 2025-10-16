@@ -199,53 +199,6 @@ app.get("/withdraw/list", async (req, res) => {
   }
 });
 
-// ===== Partner redirectors (open our domain inside TG, then 302 to partner)
-const JETTON_REF = process.env.JETTON_REF || "https://jetton.direct/cgc494NciBw?click_id={click_id}";
-const MOSTBET_REF = process.env.MOSTBET_REF || "https://vs66cd75semb.com/zAuF?sub1={telegramId}";
-
-app.get("/go/jetton", async (req, res) => {
-  try {
-    const { userId } = req.query;
-    if (!userId) return res.status(400).type("text/plain").send("userId required");
-
-    // свой click_id, чтобы Jetton вернул его как click_slug
-    const clickId = `tg_${userId}_${Date.now()}`;
-    const url = JETTON_REF.replace("{click_id}", encodeURIComponent(clickId));
-
-    // помечаем клик, чтобы потом сопоставить постбэк
-    await User.updateOne(
-      { telegramId: String(userId) },
-      {
-        $addToSet: { "traffic.clickIds": clickId },
-        $set: { "traffic.lastOutbound": { provider: "jetton", clickId, at: new Date() } }
-      }
-    ).catch(() => {});
-
-    return res.redirect(302, url);
-  } catch (e) {
-    console.error("GET /go/jetton error:", e);
-    res.status(500).type("text/plain").send("redirect error");
-  }
-});
-
-app.get("/go/mostbet", async (req, res) => {
-  try {
-    const { userId } = req.query;
-    if (!userId) return res.status(400).type("text/plain").send("userId required");
-
-    const url = MOSTBET_REF.replace("{telegramId}", encodeURIComponent(String(userId)));
-
-    await User.updateOne(
-      { telegramId: String(userId) },
-      { $set: { "traffic.lastOutbound": { provider: "mostbet", at: new Date() } } }
-    ).catch(() => {});
-
-    return res.redirect(302, url);
-  } catch (e) {
-    console.error("GET /go/mostbet error:", e);
-    res.status(500).type("text/plain").send("redirect error");
-  }
-});
 
 app.get("/postback/jetton", async (req, res) => {
 
