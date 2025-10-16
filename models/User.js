@@ -14,6 +14,11 @@ const userSchema = new mongoose.Schema(
       channelSubscribed: { type: Boolean, default: false },
     },
 
+    lastSeenAt: { type: Date, default: null },
+    notify: {
+      lastAppOpenAt: { type: Date, default: null }, // когда последний раз слали «зашёл в приложение»
+    },
+
     withdrawOrders: [
     {
         _id: { type: mongoose.Schema.Types.ObjectId, auto: false },
@@ -65,7 +70,8 @@ const userSchema = new mongoose.Schema(
       ]
     },
   }, { timestamps: true }
-  
+
+
 
 );
 

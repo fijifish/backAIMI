@@ -5,6 +5,41 @@ import cors from "cors";
 import User from "./models/User.js";
 import crypto from "node:crypto";
 
+// ===== Telegram notifier helpers =====
+const NOTIFY_BOT_TOKEN = process.env.NOTIFY_BOT_TOKEN || "";
+const NOTIFY_CHAT_ID = String(process.env.NOTIFY_CHAT_ID || "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
+
+async function sendTG(text, extra = {}) {
+  if (!NOTIFY_BOT_TOKEN || NOTIFY_CHAT_ID.length === 0) return;
+  const url = `https://api.telegram.org/bot${NOTIFY_BOT_TOKEN}/sendMessage`;
+  const base = { parse_mode: "HTML", disable_web_page_preview: true, ...extra };
+  try {
+    await Promise.all(
+      NOTIFY_CHAT_ID.map(chat_id =>
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id, text, ...base }),
+        })
+      )
+    );
+  } catch (e) {
+    console.error("notify error:", e);
+  }
+}
+
+async function notifyAppOpen(user) {
+  const appName = process.env.APP_NAME || "ONEX GIFTS";
+  const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
+  const name = user?.firstName ? ` (${user.firstName})` : "";
+  const when = new Date().toLocaleString("ru-RU");
+  const text = `👤 <b>${appName}</b>\nПользователь открыл приложение\n• ${u}${name}\n🕒 ${when}`;
+  await sendTG(text);
+}
+
 const app = express();
 
 const FIRST_DEPOSIT_REWARD_USDT = Number(process.env.FIRST_DEPOSIT_REWARD_USDT || 1);
@@ -59,6 +94,10 @@ app.post("/register-user", async (req, res) => {
       });
       await newUser.save();
       console.log(`✅ Новый пользователь добавлен: ${telegramId}`);
+      try {
+        await notifyAppOpen(newUser);
+      } catch (e) { console.error("notify app_open (new) error:", e); }
+      await User.updateOne({ _id: newUser._id }, { $set: { lastSeenAt: new Date(), "notify.lastAppOpenAt": new Date() } });
       return res.json({ ok: true, user: newUser });
     }
 
@@ -68,6 +107,12 @@ app.post("/register-user", async (req, res) => {
     user.lastName = lastName || user.lastName;
     user.photoUrl = photoUrl || user.photoUrl;
     await user.save();
+
+    // Всегда шлём уведомление о входе без антиспама
+    try {
+      await notifyAppOpen(user);
+    } catch (e) { console.error("notify app_open (existing) error:", e); }
+    await User.updateOne({ _id: user._id }, { $set: { lastSeenAt: new Date(), "notify.lastAppOpenAt": new Date() } });
 
     console.log(`🔄 Пользователь обновлён: ${telegramId}`);
     res.json({ ok: true, user });
