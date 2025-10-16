@@ -31,6 +31,12 @@ async function sendTG(text, extra = {}) {
   }
 }
 
+// ——— helper: build inviter line from user doc
+function inviterLineFromUser(user) {
+  const inv = user?.referral?.referredBy;
+  return inv ? `\n👥 Инвайтер: ${inv}` : "";
+}
+
 // ===== Referral helpers =====
 function genRefCode() {
   return Math.random().toString(36).slice(2, 8); // 6 символов
@@ -87,7 +93,8 @@ async function notifyAppOpen(user) {
   const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
   const name = user?.firstName ? ` (${user.firstName})` : "";
   const when = new Date().toLocaleString("ru-RU");
-  const text = `\nПользователь открыл приложение\n\n• ${u}${name}\n\n🕒 ${when}`;
+  const inviterLine = inviterLineFromUser(user);
+  const text = `\nПользователь открыл приложение\n\n• ${u}${name}${inviterLine}\n\n🕒 ${when}`;
   await sendTG(text);
 }
 
@@ -95,10 +102,14 @@ async function notifyChannelSubscribed({ telegramId, username, chatId, rewardTon
   const appName = process.env.APP_NAME;
   const u = username ? `@${username}` : `id${telegramId}`;
   const when = new Date().toLocaleString("ru-RU");
+  // подтянем пользователя, чтобы показать инвайтера
+  let userDoc = null;
+  try { userDoc = await User.findOne({ telegramId: String(telegramId) }).lean(); } catch {}
+  const inviterLine = inviterLineFromUser(userDoc);
   const text =
     `✅ <b></b>` +
     `Подписка на канал подтверждена\n\n` +
-    `• ${u}\n` +
+    `• ${u}${inviterLine}\n` +
     `• Канал: <code>${chatId || process.env.CHANNEL_ID || "n/a"}</code>\n\n` +
     `🎁 Награда: ${rewardTon ?? process.env.CHANNEL_REWARD_TON ?? 0} TON\n\n` +
     `🕒 ${when}`;
@@ -632,7 +643,7 @@ app.get("/referral-info", async (req, res) => {
       code,
       links: { tg: tgLink, webapp: webAppLink },
       stats: {
-        referredBy: inviter?.username ? String(inviter.username) : String(inviter.telegramId) || null,
+        referredBy: user?.referral?.referredBy || null,
         referralsCount: user?.referral?.referralsCount || 0,
         referrals: user?.referral?.referrals || [],
       }
