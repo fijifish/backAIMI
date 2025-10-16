@@ -43,8 +43,30 @@ const userSchema = new mongoose.Schema(
       firstDepositAmount:  { type: Number, default: 0 },      // размер награды (USDT)
     },
 
-  },
-  { timestamps: true }
+
+    mostbet: {
+      clientId:       { type: String, default: null },   // ID игрока у Mostbet (client_id)
+      clickId:        { type: String, default: null },   // click_id (если присылают)
+      registrationAt: { type: Date,   default: null },   // дата регистрации
+      firstDepositAt: { type: Date,   default: null },   // дата первого депозита
+      firstBetAt:     { type: Date,   default: null },   // дата первой ставки
+      lastStatus:     { type: String, default: null },   // последний статус из постбэка
+      lastAt:         { type: Date,   default: null },   // когда пришёл последний статус
+      lastSig:        { type: String, default: null },   // идемпотентность (хэш исходного запроса)
+      events: [
+        new mongoose.Schema({
+          status:   { type: String },                    // reg | fdp | first_bet | ...
+          at:       { type: Date,   default: Date.now }, // время получения события
+          amount:   { type: Number, default: 0 },        // опционально (если шлют)
+          currency: { type: String, default: null },
+          payout:   { type: Number, default: 0 },        // опционально (если шлют)
+          raw:      { type: mongoose.Schema.Types.Mixed, default: {} } // полный query их запроса
+        }, { _id: false })
+      ]
+    },
+  }, { timestamps: true }
+  
+
 );
 
 export default mongoose.model("User", userSchema);

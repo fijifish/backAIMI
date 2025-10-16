@@ -3,6 +3,7 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import User from "./models/User.js";
+import crypto from "node:crypto";
 
 const app = express();
 
@@ -377,6 +378,98 @@ app.get("/check-casino-deposit", async (req, res) => {
   }
 });
 
+
+// ===== MOSTBET POSTBACK =====
+// Ожидаем в query: status, subid/sub1/s1/aff_sub (ваш userId), client_id, click_id,
+// а также необязательные amount, currency, payout, landing, project
+app.get("/postback/mostbet", async (req, res) => {
+  try {
+    console.log("[MOSTBET] raw:", req.originalUrl);
+    const q = req.query || {};
+
+    const status   = String(q.status || q.event || "").toLowerCase();
+    const subid    = String(q.subid  || q.sub1 || q.s1 || q.aff_sub || "").trim();
+    const clientId = q.client_id ? String(q.client_id) : null;
+    const clickId  = q.click_id  ? String(q.click_id)  : null;
+    const landing  = q.landing   ? String(q.landing)   : null;
+    const project  = q.project   ? String(q.project)   : null;
+
+    const amount   = q.amount != null ? Number(String(q.amount).replace(",", ".")) : null;
+    const payout   = q.payout != null ? Number(String(q.payout).replace(",", ".")) : null;
+    const currency = q.currency ? String(q.currency) : null;
+
+    // userId обязателен — ты передаёшь его в ссылке как ?sub1={telegramId}
+    if (!subid) return res.status(200).send("OK: no_subid");
+
+    const user = await User.findOne({ telegramId: subid });
+    if (!user) return res.status(200).send("OK: user_not_found");
+
+    // Идемпотентность: один и тот же постбэк не обрабатываем повторно
+    const sig = crypto.createHash("sha1").update(req.originalUrl).digest("hex");
+    if (user.mostbet?.lastSig === sig) {
+      return res.status(200).send("OK: duplicate");
+    }
+
+    const now = new Date();
+    const update = {
+      "mostbet.lastSig": sig,
+      "mostbet.lastStatus": status || user.mostbet?.lastStatus || null,
+      "mostbet.lastAt": now,
+    };
+
+    if (clientId) update["mostbet.clientId"] = clientId;
+    if (clickId)  update["mostbet.clickId"]  = clickId;
+
+    // Лёгкие трафик-метки
+    if (landing) update["traffic.mostbet_landing"] = landing;
+    if (project) update["traffic.mostbet_project"] = project;
+    if (clickId) update["traffic.mostbet_click_id"] = clickId;
+
+    // Статусы → поля дат
+    switch (status) {
+      case "reg":
+      case "registration":
+        if (!user.mostbet?.registrationAt) {
+          update["mostbet.registrationAt"] = now;
+        }
+        break;
+      case "fdp":
+      case "first_deposit":
+        if (!user.mostbet?.firstDepositAt) {
+          update["mostbet.firstDepositAt"] = now;
+        }
+        break;
+      case "first_bet":
+      case "fb":
+      case "first_bet_placed":
+        if (!user.mostbet?.firstBetAt) {
+          update["mostbet.firstBetAt"] = now;
+        }
+        break;
+      default:
+        // другие статусы просто запишем в историю
+        break;
+    }
+
+    // Пишем событие в историю
+    update.$push = {
+      "mostbet.events": {
+        status: status || null,
+        at: now,
+        amount: Number.isFinite(amount) ? amount : 0,
+        currency: currency || null,
+        payout: Number.isFinite(payout) ? payout : 0,
+        raw: q
+      }
+    };
+
+    await User.updateOne({ _id: user._id }, update);
+    return res.status(200).send("OK");
+  } catch (e) {
+    console.error("mostbet postback error:", e);
+    return res.status(200).send("ERROR");
+  }
+});
 
 // ✅ Запуск сервера
 const PORT = process.env.PORT || 8080;
