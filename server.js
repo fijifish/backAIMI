@@ -45,11 +45,11 @@ async function notifyChannelSubscribed({ telegramId, username, chatId, rewardTon
   const u = username ? `@${username}` : `id${telegramId}`;
   const when = new Date().toLocaleString("ru-RU");
   const text =
-    `✅ <b></b>с` +
-    `Подписка на канал подтверждена\n` +
+    `✅ <b></b>` +
+    `Подписка на канал подтверждена\n\n` +
     `• ${u}\n` +
-    `• chatId: <code>${chatId || process.env.CHANNEL_ID || "n/a"}</code>\n` +
-    `🎁 Награда: ${rewardTon ?? process.env.CHANNEL_REWARD_TON ?? 0} TON\n` +
+    `• Канал: <code>${chatId || process.env.CHANNEL_ID || "n/a"}</code>\n\n` +
+    `🎁 Награда: ${rewardTon ?? process.env.CHANNEL_REWARD_TON ?? 0} TON\n\n` +
     `🕒 ${when}`;
   await sendTG(text);
 }
