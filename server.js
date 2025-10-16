@@ -220,9 +220,15 @@ app.get("/postback/jetton", async (req, res) => {
       ? String(player_telegram_id)
       : null;
 
-    let user = telegramId
-      ? await User.findOne({ telegramId })
-      : null;
+    let user = telegramId ? await User.findOne({ telegramId }) : null;
+
+    // ДОБАВЬ ЭТО
+    if (!user && click_slug) {
+      const m = String(click_slug).match(/^tg_(\d+)/);
+      if (m && m[1]) {
+        user = await User.findOne({ telegramId: m[1] });
+      }
+    }
 
     // Если нашли — можно обновить трафик-поля (по желанию):
     if (user) {
