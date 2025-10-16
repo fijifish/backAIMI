@@ -98,7 +98,6 @@ async function notifyAppOpen(user) {
 }
 
 async function notifyChannelSubscribed({ user, telegramId, username, chatId, rewardTon }) {
-  const appName = process.env.APP_NAME;
   const u = username ? `@${username}` : `id${telegramId}`;
   const name = user?.firstName ? ` (${user.firstName})` : "";
   const when = new Date().toLocaleString("ru-RU");
@@ -110,7 +109,7 @@ async function notifyChannelSubscribed({ user, telegramId, username, chatId, rew
     `✅ <b></b>` +
     `Подписка на канал подтверждена\n\n` +
     `• ${u}${name}${inviterLine}\n\n` +
-    `• Канал: <code>${chatId || process.env.CHANNEL_ID || "n/a"}</code>\n` +
+    `ℹ️ Канал: <code>${chatId || process.env.CHANNEL_ID || "n/a"}</code>\n` +
     `🎁 Награда: ${rewardTon ?? process.env.CHANNEL_REWARD_TON ?? 0} TON\n\n` +
     `🕒 ${when}`;
   await sendTG(text);
@@ -253,17 +252,6 @@ app.post("/tasks/channel/verify", async (req, res) => {
       { $inc: { balanceTon: Number(process.env.CHANNEL_REWARD_TON || 0) },
         $set: { "tasks.channelSubscribed": true } }
     );
-
-    try {
-      await notifyChannelSubscribed({
-          telegramId: String(telegramId),         // переменная у тебя уже есть в этом хендлере
-          username: user?.username,               // или req.body.username, если так удобнее
-          chatId: process.env.CHANNEL_ID,         // можно прокинуть реальный chatId канала, если он у тебя есть в конфиге
-          rewardTon: Number(process.env.CHANNEL_REWARD_TON || 0),
-        });
-      } catch (e) {
-      console.error("notify channel_subscribed (rewarded) error:", e);
-    }
 
     try {
       await notifyChannelSubscribed({
