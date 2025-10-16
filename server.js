@@ -98,7 +98,7 @@ async function notifyAppOpen(user) {
   await sendTG(text);
 }
 
-async function notifyChannelSubscribed({ telegramId, username, chatId, rewardTon }) {
+async function notifyChannelSubscribed({ user, telegramId, username, chatId, rewardTon }) {
   const appName = process.env.APP_NAME;
   const u = username ? `@${username}` : `id${telegramId}`;
   const name = user?.firstName ? ` (${user.firstName})` : "";
