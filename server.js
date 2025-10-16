@@ -199,7 +199,58 @@ app.get("/withdraw/list", async (req, res) => {
   }
 });
 
+// ===== Partner redirectors (open our domain inside TG, then 302 to partner)
+const JETTON_REF = process.env.JETTON_REF || "https://jetton.direct/cgc494NciBw?click_id={click_id}";
+const MOSTBET_REF = process.env.MOSTBET_REF || "https://vs66cd75semb.com/zAuF?sub1={telegramId}";
+
+app.get("/go/jetton", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).type("text/plain").send("userId required");
+
+    // свой click_id, чтобы Jetton вернул его как click_slug
+    const clickId = `tg_${userId}_${Date.now()}`;
+    const url = JETTON_REF.replace("{click_id}", encodeURIComponent(clickId));
+
+    // помечаем клик, чтобы потом сопоставить постбэк
+    await User.updateOne(
+      { telegramId: String(userId) },
+      {
+        $addToSet: { "traffic.clickIds": clickId },
+        $set: { "traffic.lastOutbound": { provider: "jetton", clickId, at: new Date() } }
+      }
+    ).catch(() => {});
+
+    return res.redirect(302, url);
+  } catch (e) {
+    console.error("GET /go/jetton error:", e);
+    res.status(500).type("text/plain").send("redirect error");
+  }
+});
+
+app.get("/go/mostbet", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).type("text/plain").send("userId required");
+
+    const url = MOSTBET_REF.replace("{telegramId}", encodeURIComponent(String(userId)));
+
+    await User.updateOne(
+      { telegramId: String(userId) },
+      { $set: { "traffic.lastOutbound": { provider: "mostbet", at: new Date() } } }
+    ).catch(() => {});
+
+    return res.redirect(302, url);
+  } catch (e) {
+    console.error("GET /go/mostbet error:", e);
+    res.status(500).type("text/plain").send("redirect error");
+  }
+});
+
 app.get("/postback/jetton", async (req, res) => {
+
+  console.log("[POSTBACK] raw:", req.originalUrl);
+  console.log("[POSTBACK] query:", req.query);
   try {
     const {
       player_id,             // их внутренний id игрока (может не совпадать с нашим)
@@ -211,7 +262,7 @@ app.get("/postback/jetton", async (req, res) => {
       tx_id                  // уникальный id транзакции (используем для идемпотентности)
     } = req.query;
 
-    // Найдём пользователя по telegramId (предпочтительно)
+    // 1) Сначала пытаемся найти по Telegram ID
     const telegramId = (player_telegram_id && player_telegram_id !== "0")
       ? String(player_telegram_id)
       : null;
@@ -220,50 +271,60 @@ app.get("/postback/jetton", async (req, res) => {
       ? await User.findOne({ telegramId })
       : null;
 
-    // Если нашли — можно обновить трафик-поля (по желанию):
+    // 2) Fallback: если Telegram ID нет, сопоставим по click_slug (мы заранее кладём свой click_id в traffic.clickIds)
+    if (!user && click_slug) {
+      user = await User.findOne({ "traffic.clickIds": click_slug });
+      if (user && telegramId) {
+        await User.updateOne({ _id: user._id }, { telegramId });
+      }
+    }
+
+    // 3) Если нашли — запишем трафик-метки
     if (user) {
       const trafficUpdate = {};
       if (promo_slug) trafficUpdate["traffic.promo_slug"] = promo_slug;
-      if (click_slug) trafficUpdate["traffic.click_slug"] = click_slug;
+      if (click_slug) {
+        trafficUpdate["traffic.click_slug"] = click_slug;
+        trafficUpdate.$addToSet = { ...(trafficUpdate.$addToSet || {}), "traffic.clickIds": click_slug };
+      }
       if (Object.keys(trafficUpdate).length) {
         await User.updateOne({ _id: user._id }, trafficUpdate);
       }
     }
 
-    // Если юзер не найден, можно тихо завершить (OK) или создать аккаунт.
+    // 4) Если пользователя не нашли — возвращаем 200, чтобы Jetton не перестал слать
     if (!user) {
       return res.status(200).send("OK: user_not_found");
     }
 
-    // Идемпотентность: если приходил такой tx_id — повтор не обрабатываем.
+    // 5) Идемпотентность по tx_id
     if (tx_id && user.deposits?.lastTxId === tx_id) {
       return res.status(200).send("OK: duplicate_tx_id");
     }
 
-    // Интересны только события депозита
+    // 6) Интересуют только депозиты
     const isDepositEvent = action === "first_deposit" || action === "deposit";
     if (!isDepositEvent) {
-      // Можно логировать register/withdraw, если надо
       return res.status(200).send("OK");
     }
 
     const usd = Number(amount_usd || 0);
 
-    // Базовое обновление агрегатов депозитов
     const update = {
       "deposits.lastTxId": tx_id || null,
       $inc: { "deposits.count": 1, "deposits.totalUsd": usd }
     };
 
-    // Если это первый депозит — поставим дату первого депозита
+    // 7) Метка первого депозита
     const isFirstByAction = action === "first_deposit";
     if (isFirstByAction && !user.deposits.firstDepositAt) {
       update["deposits.firstDepositAt"] = new Date();
     }
 
-    // Награда за первый депозит — один раз
-    if (isFirstByAction && !user.rewards.firstDepositGranted) {
-      update.$inc.balanceTon = FIRST_DEPOSIT_REWARD_USDT;       // пополняем баланс (USDT)
+    // 8) Награда за первый депозит (если используешь)
+    if (isFirstByAction && !user.rewards?.firstDepositGranted) {
+      update.$inc = update.$inc || {};
+      update.$inc.balanceTon = FIRST_DEPOSIT_REWARD_USDT; // USDT-эквивалент в твоей модели
       update["rewards.firstDepositGranted"] = true;
       update["rewards.firstDepositAmount"]  = FIRST_DEPOSIT_REWARD_USDT;
     }
@@ -273,7 +334,7 @@ app.get("/postback/jetton", async (req, res) => {
     return res.status(200).send("OK");
   } catch (e) {
     console.error("postback error:", e);
-    return res.status(200).send("ERROR"); // Jetton обычно не ретраит по 500; оставим 200
+    return res.status(200).send("ERROR"); // Jetton обычно не ретраит по 500
   }
 });
 
