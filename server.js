@@ -101,6 +101,7 @@ async function notifyAppOpen(user) {
 async function notifyChannelSubscribed({ telegramId, username, chatId, rewardTon }) {
   const appName = process.env.APP_NAME;
   const u = username ? `@${username}` : `id${telegramId}`;
+  const name = user?.firstName ? ` (${user.firstName})` : "";
   const when = new Date().toLocaleString("ru-RU");
   // подтянем пользователя, чтобы показать инвайтера
   let userDoc = null;
@@ -109,8 +110,8 @@ async function notifyChannelSubscribed({ telegramId, username, chatId, rewardTon
   const text =
     `✅ <b></b>` +
     `Подписка на канал подтверждена\n\n` +
-    `• ${u}${inviterLine}\n` +
-    `• Канал: <code>${chatId || process.env.CHANNEL_ID || "n/a"}</code>\n\n` +
+    `• ${u}${name}${inviterLine}\n\n` +
+    `• Канал: <code>${chatId || process.env.CHANNEL_ID || "n/a"}</code>\n` +
     `🎁 Награда: ${rewardTon ?? process.env.CHANNEL_REWARD_TON ?? 0} TON\n\n` +
     `🕒 ${when}`;
   await sendTG(text);
