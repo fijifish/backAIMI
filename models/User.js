@@ -24,6 +24,25 @@ const userSchema = new mongoose.Schema(
         createdAt: { type: Date, default: Date.now }
     }
     ],
+
+    traffic: {
+      promo_slug:   { type: String, default: null },   // {promo_slug}
+      click_slug:   { type: String, default: null },   // {click_slug}
+      click_params: { type: mongoose.Schema.Types.Mixed, default: {} }, // любые ?sub_id_*
+    },
+
+    deposits: {
+      firstDepositAt: { type: Date, default: null },     // время первого успешного депозита
+      count:          { type: Number, default: 0 },       // всего успешных депозитов
+      totalUsd:       { type: Number, default: 0 },       // суммарно в USD
+      lastTxId:       { type: String, default: null },    // для идемпотентности
+    },
+
+    rewards: {
+      firstDepositGranted: { type: Boolean, default: false }, // награда за первый депозит выдана
+      firstDepositAmount:  { type: Number, default: 0 },      // размер награды (USDT)
+    },
+
   },
   { timestamps: true }
 );
