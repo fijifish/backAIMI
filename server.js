@@ -89,7 +89,6 @@ async function attachReferralIfAny(newUser, refRaw) {
 }
 
 async function notifyAppOpen(user) {
-  const appName = process.env.APP_NAME;
   const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
   const name = user?.firstName ? ` (${user.firstName})` : "";
   const when = new Date().toLocaleString("ru-RU");
