@@ -31,6 +31,57 @@ async function sendTG(text, extra = {}) {
   }
 }
 
+// ===== Referral helpers =====
+function genRefCode() {
+  return Math.random().toString(36).slice(2, 8); // 6 символов
+}
+
+async function ensureUserRefCode(user) {
+  if (user?.referral?.code) return user.referral.code;
+  let code = genRefCode();
+  for (let i = 0; i < 5; i++) {
+    const exists = await User.findOne({ "referral.code": code }, { _id: 1 }).lean();
+    if (!exists) break;
+    code = genRefCode();
+  }
+  await User.updateOne({ _id: user._id }, { $set: { "referral.code": code } });
+  return code;
+}
+
+// Поддерживаем ref как код ИЛИ как telegramId пригласившего
+async function attachReferralIfAny(newUser, refRaw) {
+  const ref = String(refRaw || "").trim();
+  if (!ref) return;
+
+  let inviter = await User.findOne({ "referral.code": ref });
+  if (!inviter && /^\d+$/.test(ref)) {
+    inviter = await User.findOne({ telegramId: ref });
+  }
+  if (!inviter) return;
+  if (String(inviter.telegramId) === String(newUser.telegramId)) return; // сам себя
+
+  // ставим «кто пригласил» один раз
+  await User.updateOne(
+    { _id: newUser._id, "referral.referredBy": { $in: [null, undefined] } },
+    {
+      $set: {
+        "referral.referredBy": String(inviter.telegramId),
+        "referral.referredByCode": inviter.referral?.code || null,
+        "referral.referredAt": new Date(),
+      }
+    }
+  );
+
+  // увеличиваем статистику у пригласившего
+  await User.updateOne(
+    { _id: inviter._id },
+    {
+      $inc: { "referral.referralsCount": 1 },
+      $push: { "referral.referrals": { telegramId: String(newUser.telegramId), at: new Date() } },
+    }
+  );
+}
+
 async function notifyAppOpen(user) {
   const appName = process.env.APP_NAME;
   const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
@@ -108,6 +159,10 @@ app.post("/register-user", async (req, res) => {
       });
       await newUser.save();
       console.log(`✅ Новый пользователь добавлен: ${telegramId}`);
+
+      const code = await ensureUserRefCode(newUser);
+      await attachReferralIfAny(newUser, ref);  // ref уже приходит из тела запроса
+
       try {
         await notifyAppOpen(newUser);
       } catch (e) { console.error("notify app_open (new) error:", e); }
@@ -549,6 +604,56 @@ app.get("/postback/mostbet", async (req, res) => {
   } catch (e) {
     console.error("mostbet postback error:", e);
     return res.status(200).send("ERROR");
+  }
+});
+
+// Вернуть мою ссылку и статистику
+app.get("/referral-info", async (req, res) => {
+  try {
+    const { telegramId } = req.query || {};
+    if (!telegramId) return res.status(400).json({ ok:false, error:"telegramId is required" });
+
+    const user = await User.findOne({ telegramId: String(telegramId) }).lean();
+    if (!user) return res.status(404).json({ ok:false, error:"User not found" });
+
+    if (!user?.referral?.code) {
+      const code = await ensureUserRefCode(user);
+      user.referral = user.referral || {};
+      user.referral.code = code;
+    }
+
+    const bot = process.env.TELEGRAM_BOT_USERNAME || ""; // без @
+    const code = user.referral.code;
+    const tgLink = bot ? `https://t.me/${bot}?start=ref_${code}` : null;
+    const webAppLink = bot ? `https://t.me/${bot}/${process.env.TELEGRAM_WEBAPP_PATH || ''}?startapp=ref_${code}` : null;
+
+    res.json({
+      ok: true,
+      code,
+      links: { tg: tgLink, webapp: webAppLink },
+      stats: {
+        referredBy: user?.referral?.referredBy || null,
+        referralsCount: user?.referral?.referralsCount || 0,
+        referrals: user?.referral?.referrals || [],
+      }
+    });
+  } catch (e) {
+    console.error("/referral-info error:", e);
+    res.status(500).json({ ok:false, error:"Server error" });
+  }
+});
+
+// Редирект по короткой ссылке /ref/<code> -> к боту
+app.get("/ref/:code", async (req, res) => {
+  try {
+    const { code } = req.params;
+    const bot = process.env.TELEGRAM_BOT_USERNAME;
+    if (!bot) return res.status(400).type("text/plain").send("TELEGRAM_BOT_USERNAME is not set");
+    const target = `https://t.me/${bot}?start=ref_${encodeURIComponent(code)}`;
+    return res.redirect(302, target);
+  } catch (e) {
+    console.error("/ref/:code error:", e);
+    res.status(500).type("text/plain").send("Server error");
   }
 });
 

@@ -19,6 +19,22 @@ const userSchema = new mongoose.Schema(
       lastAppOpenAt: { type: Date, default: null }, // когда последний раз слали «зашёл в приложение»
     },
 
+    referral: {
+      code:           { type: String, default: null }, // уникальный код
+      referredBy:     { type: String, default: null },               // telegramId пригласившего
+      referredByCode: { type: String, default: null },               // его код (копия)
+      referredAt:     { type: Date,   default: null },
+
+      referralsCount: { type: Number, default: 0 },
+      referrals: [
+        new mongoose.Schema({
+          telegramId: { type: String },
+          at:         { type: Date, default: Date.now },
+        }, { _id: false })
+      ],
+    },
+
+
     withdrawOrders: [
     {
         _id: { type: mongoose.Schema.Types.ObjectId, auto: false },
@@ -74,5 +90,8 @@ const userSchema = new mongoose.Schema(
 
 
 );
+
+// Уникальный индекс на referral.code (sparse позволяет множеству null)
+userSchema.index({ "referral.code": 1 }, { unique: true, sparse: true });
 
 export default mongoose.model("User", userSchema);
