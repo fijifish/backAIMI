@@ -174,6 +174,42 @@ async function notifyMostbetFirstDeposit(user, { amountUsd, clientId } = {}) {
   await sendTG(text);
 }
 
+async function notifyJettonRegistration(user, { promo_slug, click_slug } = {}) {
+  const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
+  const when = new Date().toLocaleString("ru-RU");
+  const inviterLine = (typeof inviterLineFromUser === "function")
+    ? inviterLineFromUser(user)
+    : (user?.referral?.referredBy ? `\n👥 Инвайтер: ${user.referral.referredBy}` : "");
+
+  const meta = [
+    promo_slug ? `🏷️ promo: <code>${promo_slug}</code>` : null,
+    click_slug ? `🔗 click: <code>${click_slug}</code>` : null,
+  ].filter(Boolean).join("\n");
+
+  const text =
+    `🆕 <b>Регистрация в JETTON</b>\n` +
+    `• ${u}${inviterLine}\n` +
+    (meta ? meta + "\n" : "") +
+    `🕒 ${when}`;
+  await sendTG(text);
+}
+
+async function notifyJettonDeposit(user, { amountUsd, txId, isFirst } = {}) {
+  const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
+  const when = new Date().toLocaleString("ru-RU");
+  const inviterLine = (typeof inviterLineFromUser === "function")
+    ? inviterLineFromUser(user) : "";
+  const amt = Number.isFinite(Number(amountUsd)) ? Number(amountUsd).toFixed(2) : "n/a";
+
+  const text =
+    `${isFirst ? "💳 <b>Первый депозит в JETTON</b>" : "💵 <b>Депозит в JETTON</b>"}\n` +
+    `• ${u}${inviterLine}\n` +
+    `💰 Сумма: <b>${amt}$</b>\n` +
+    (txId ? `🧾 tx_id: <code>${txId}</code>\n` : "") +
+    `🕒 ${when}`;
+  await sendTG(text);
+}
+
 const app = express();
 
 const FIRST_DEPOSIT_REWARD_USDT = Number(process.env.FIRST_DEPOSIT_REWARD_USDT || 1);
@@ -438,6 +474,21 @@ app.get("/postback/jetton", async (req, res) => {
       }
     }
 
+    // уведомление о регистрации (шлём один раз)
+    if (user && String(action) === "register") {
+      // помечаем, что регистрацию уже видели, чтобы не слать повторно
+      const needNotify = !user?.traffic?.jetton_registeredAt;
+      if (needNotify) {
+        await User.updateOne({ _id: user._id }, { $set: { "traffic.jetton_registeredAt": new Date() } });
+        try {
+          const fresh = await User.findById(user._id).lean();
+          await notifyJettonRegistration(fresh || user, { promo_slug, click_slug });
+        } catch (e) {
+          console.error("notifyJettonRegistration error:", e);
+        }
+      }
+    }
+
     // Если юзер не найден, можно тихо завершить (OK) или создать аккаунт.
     if (!user) {
       return res.status(200).send("OK: user_not_found");
@@ -465,8 +516,16 @@ app.get("/postback/jetton", async (req, res) => {
 
     // Если это первый депозит — поставим дату первого депозита
     const isFirstByAction = action === "first_deposit";
-    if (isFirstByAction && !user.deposits.firstDepositAt) {
-      update["deposits.firstDepositAt"] = new Date();
+    let notifyDeposit = false;
+    let notifyFirstDeposit = false;
+
+    // идемпотентность у тебя уже есть выше по tx_id. Если не дубликат — уведомим
+    if (isDepositEvent) {
+      if (isFirstByAction && !user.deposits.firstDepositAt) {
+        notifyFirstDeposit = true; // впервые ставим firstDepositAt — это точно ФД
+      } else if (action === "deposit") {
+        notifyDeposit = true; // обычный депозит (не первый)
+      }
     }
 
     // Награда за первый депозит — один раз
@@ -477,6 +536,19 @@ app.get("/postback/jetton", async (req, res) => {
     }
 
     await User.updateOne({ _id: user._id }, update);
+
+    if (notifyFirstDeposit || notifyDeposit) {
+      try {
+        const fresh = await User.findById(user._id).lean();
+        await notifyJettonDeposit(fresh || user, {
+          amountUsd: usd,
+          txId: tx_id || null,
+          isFirst: Boolean(notifyFirstDeposit),
+        });
+      } catch (e) {
+        console.error("notifyJettonDeposit error:", e);
+      }
+    }
 
     return res.status(200).send("OK");
   } catch (e) {
