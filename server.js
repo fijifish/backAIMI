@@ -115,6 +115,41 @@ async function notifyChannelSubscribed({ user, telegramId, username, chatId, rew
   await sendTG(text);
 }
 
+async function notifyMostbetRegistration(user, clientId) {
+  const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
+  const when = new Date().toLocaleString("ru-RU");
+
+  // Попробуем красиво вывести инвайтера как @username (если знаем)
+  let inviterText = "";
+  try {
+    const refBy = user?.referral?.referredBy || null; // у тебя тут либо username, либо telegramId
+    if (refBy) {
+      let inviterUser = null;
+      if (/^\d+$/.test(refBy)) {
+        // в БД мы храним телеграм-id пригласителя — попробуем найти username
+        inviterUser = await User.findOne({ telegramId: refBy }, { username: 1 }).lean();
+      } else {
+        // в БД мы храним username без @ — попробуем найти документ пригласителя
+        inviterUser = await User.findOne({ username: refBy.replace(/^@/, "") }, { username: 1, telegramId: 1 }).lean();
+      }
+      const invPretty =
+        inviterUser?.username ? `@${inviterUser.username}` :
+        (refBy.startsWith("@") ? refBy : (/^\d+$/.test(refBy) ? `id${refBy}` : refBy));
+      inviterText = `\n👥 Инвайтер: ${invPretty}`;
+    }
+  } catch {}
+
+  const cid = clientId || user?.mostbet?.clientId || "n/a";
+
+  const text =
+    `🆕 <b>Регистрация на MOSTBET</b>\n` +
+    `• ${u}${inviterText}\n` +
+    `🪪 clientId: <code>${cid}</code>\n` +
+    `🕒 ${when}`;
+
+  await sendTG(text); // sendTG уже учитывает NOTIFY_THREAD_ID, если ты это добавил
+}
+
 const app = express();
 
 const FIRST_DEPOSIT_REWARD_USDT = Number(process.env.FIRST_DEPOSIT_REWARD_USDT || 1);
@@ -567,14 +602,22 @@ app.get("/postback/mostbet", async (req, res) => {
     if (project) update["traffic.mostbet_project"] = project;
     if (clickId) update["traffic.mostbet_click_id"] = clickId;
 
+    let notifyMostbetReg = false;
+
     // Статусы → поля дат
     switch (status) {
-      case "reg":
-      case "registration":
-        if (!user.mostbet?.registrationAt) {
-          update["mostbet.registrationAt"] = now;
-        }
-        break;
+    case "reg":
+    case "registration":
+      if (!user.mostbet?.registrationAt) {
+        update["mostbet.registrationAt"] = now;
+        notifyMostbetReg = true; // впервые зарегистрировался
+      }
+      // если пришёл clientId впервые — тоже уведомим
+      if (clientId && !user.mostbet?.clientId) {
+        update["mostbet.clientId"] = clientId;
+        notifyMostbetReg = true;
+      }
+      break;
       case "fdp":
       case "first_deposit":
         if (!user.mostbet?.firstDepositAt) {
@@ -618,6 +661,14 @@ app.get("/postback/mostbet", async (req, res) => {
     };
 
     await User.updateOne({ _id: user._id }, update);
+    if (notifyMostbetReg) {
+      const fresh = await User.findById(user._id).lean();
+      try {
+        await notifyMostbetRegistration(fresh, clientId);
+      } catch (e) {
+        console.error("notifyMostbetRegistration error:", e);
+      }
+    }
     return res.status(200).send("OK");
   } catch (e) {
     console.error("mostbet postback error:", e);
