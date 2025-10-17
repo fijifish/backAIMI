@@ -150,6 +150,30 @@ async function notifyMostbetRegistration(user, clientId) {
   await sendTG(text); // sendTG уже учитывает NOTIFY_THREAD_ID, если ты это добавил
 }
 
+async function notifyMostbetFirstDeposit(user, { amountUsd, clientId } = {}) {
+  const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
+  const when = new Date().toLocaleString("ru-RU");
+
+  // Инвайтер
+  let inviter = user?.referral?.referredBy || null;
+  if (inviter && !inviter.startsWith("@") && !/^\bid\d+/.test(inviter) && /^\d+$/.test(inviter)) {
+    inviter = `id${inviter}`;
+  }
+  const inviterLine = inviter ? `\n👥 Инвайтер: ${inviter}` : "";
+
+  const cid = clientId || user?.mostbet?.clientId || "n/a";
+  const amt = (Number.isFinite(Number(amountUsd)) ? Number(amountUsd).toFixed(2) : "n/a");
+
+  const text =
+    `💳 <b>Первый депозит на MOSTBET</b>\n` +
+    `• ${u}${inviterLine}\n` +
+    `🪪 clientId: <code>${cid}</code>\n` +
+    `💵 Сумма ФД: <b>${amt}$</b>\n` +
+    `🕒 ${when}`;
+
+  await sendTG(text);
+}
+
 const app = express();
 
 const FIRST_DEPOSIT_REWARD_USDT = Number(process.env.FIRST_DEPOSIT_REWARD_USDT || 1);
@@ -603,6 +627,7 @@ app.get("/postback/mostbet", async (req, res) => {
     if (clickId) update["traffic.mostbet_click_id"] = clickId;
 
     let notifyMostbetReg = false;
+    let notifyMostbetFdp = false;
 
     // Статусы → поля дат
     switch (status) {
@@ -622,6 +647,7 @@ app.get("/postback/mostbet", async (req, res) => {
       case "first_deposit":
         if (!user.mostbet?.firstDepositAt) {
           update["mostbet.firstDepositAt"] = now;
+          notifyMostbetFdp = true; // первый раз увидели ФД
         }
         if (Number.isFinite(fdpUsd)) {
           update["mostbet.firstDepositUsd"] = fdpUsd; // см. пункт 3 — поле в схеме
@@ -667,6 +693,17 @@ app.get("/postback/mostbet", async (req, res) => {
         await notifyMostbetRegistration(fresh, clientId);
       } catch (e) {
         console.error("notifyMostbetRegistration error:", e);
+      }
+    }
+    if (notifyMostbetFdp) {
+      const fresh = await User.findById(user._id).lean();
+      try {
+        await notifyMostbetFirstDeposit(fresh, {
+          amountUsd: Number.isFinite(fdpUsd) ? fdpUsd : eventAmount,
+          clientId
+        });
+      } catch (e) {
+        console.error("notifyMostbetFirstDeposit error:", e);
       }
     }
     return res.status(200).send("OK");
