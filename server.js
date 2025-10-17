@@ -165,10 +165,10 @@ async function notifyMostbetFirstDeposit(user, { amountUsd, clientId } = {}) {
   const amt = (Number.isFinite(Number(amountUsd)) ? Number(amountUsd).toFixed(2) : "n/a");
 
   const text =
-    `💳 <b>Первый депозит на MOSTBET</b>\n` +
-    `• ${u}${inviterLine}\n` +
+    `💳 <b>Первый депозит на MOSTBET</b>\n\n` +
+    `• ${u}${inviterLine}\n\n` +
     `🪪 clientId: <code>${cid}</code>\n` +
-    `💵 Сумма ФД: <b>${amt}$</b>\n` +
+    `💵 Сумма ФД: <b>${amt}$</b>\n\n` +
     `🕒 ${when}`;
 
   await sendTG(text);
