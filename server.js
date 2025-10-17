@@ -142,9 +142,9 @@ async function notifyMostbetRegistration(user, clientId) {
   const cid = clientId || user?.mostbet?.clientId || "n/a";
 
   const text =
-    `🆕 <b>Регистрация на MOSTBET</b>\n` +
-    `• ${u}${inviterText}\n` +
-    `🪪 clientId: <code>${cid}</code>\n` +
+    `🆕 <b>Регистрация на MOSTBET</b>\n\n` +
+    `• ${u}${inviterText}\n\n` +
+    `🪪 clientId: <code>${cid}</code>\n\n` +
     `🕒 ${when}`;
 
   await sendTG(text); // sendTG уже учитывает NOTIFY_THREAD_ID, если ты это добавил
