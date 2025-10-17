@@ -202,10 +202,10 @@ async function notifyJettonDeposit(user, { amountUsd, txId, isFirst } = {}) {
   const amt = Number.isFinite(Number(amountUsd)) ? Number(amountUsd).toFixed(2) : "n/a";
 
   const text =
-    `${isFirst ? "💳 <b>Первый депозит в JETTON</b>" : "💵 <b>Депозит в JETTON</b>"}\n` +
-    `• ${u}${inviterLine}\n` +
+    `${isFirst ? "💳 <b>Первый депозит в JETTON</b>" : "💵 <b>Депозит в JETTON</b>"}\n\n` +
+    `• ${u}${inviterLine}\n\n` +
     `💰 Сумма: <b>${amt}$</b>\n` +
-    (txId ? `🧾 tx_id: <code>${txId}</code>\n` : "") +
+    (txId ? `🧾 tx_id: <code>${txId}</code>\n\n` : "") +
     `🕒 ${when}`;
   await sendTG(text);
 }
