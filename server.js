@@ -536,6 +536,10 @@ app.get("/postback/mostbet", async (req, res) => {
     const payout   = q.payout != null ? Number(String(q.payout).replace(",", ".")) : null;
     const currency = q.currency ? String(q.currency) : null;
 
+    const fdpUsd  = q.fdp_usd != null ? Number(String(q.fdp_usd).replace(",", ".")) : null;
+    const depSumUsd  = q.dep_sum_usd != null ? Number(String(q.dep_sum_usd).replace(",", ".")) : null;
+    const betSumUsd  = q.bet_sum_usd != null ? Number(String(q.bet_sum_usd).replace(",", ".")) : null;
+
     // userId обязателен — ты передаёшь его в ссылке как ?sub1={telegramId}
     if (!subid) return res.status(200).send("OK: no_subid");
 
@@ -576,6 +580,9 @@ app.get("/postback/mostbet", async (req, res) => {
         if (!user.mostbet?.firstDepositAt) {
           update["mostbet.firstDepositAt"] = now;
         }
+        if (Number.isFinite(fdpUsd)) {
+          update["mostbet.firstDepositUsd"] = fdpUsd; // см. пункт 3 — поле в схеме
+        }
         break;
       case "first_bet":
       case "fb":
@@ -589,12 +596,21 @@ app.get("/postback/mostbet", async (req, res) => {
         break;
     }
 
+    let eventAmount = null;
+    if (status === "fdp" || status === "first_deposit") {
+      eventAmount = Number.isFinite(fdpUsd) ? fdpUsd : (Number.isFinite(amount) ? amount : null);
+    } else if (status === "active" || status === "first_bet" || status === "fb" || status === "first_bet_placed") {
+      eventAmount = Number.isFinite(betSumUsd) ? betSumUsd : (Number.isFinite(amount) ? amount : null);
+    } else if (status === "dep" || status === "repeat_deposit") {
+      eventAmount = Number.isFinite(depSumUsd) ? depSumUsd : (Number.isFinite(amount) ? amount : null);
+    }
+
     // Пишем событие в историю
     update.$push = {
       "mostbet.events": {
         status: status || null,
         at: now,
-        amount: Number.isFinite(amount) ? amount : 0,
+        amount: Number.isFinite(eventAmount) ? eventAmount : 0,
         currency: currency || null,
         payout: Number.isFinite(payout) ? payout : 0,
         raw: q

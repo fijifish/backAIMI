@@ -70,6 +70,7 @@ const userSchema = new mongoose.Schema(
       clickId:        { type: String, default: null },   // click_id (если присылают)
       registrationAt: { type: Date,   default: null },   // дата регистрации
       firstDepositAt: { type: Date,   default: null },   // дата первого депозита
+      firstDepositUsd: { type: Number, default: 0 },   
       firstBetAt:     { type: Date,   default: null },   // дата первой ставки
       lastStatus:     { type: String, default: null },   // последний статус из постбэка
       lastAt:         { type: Date,   default: null },   // когда пришёл последний статус
