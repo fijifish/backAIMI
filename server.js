@@ -12,14 +12,40 @@ const NOTIFY_CHAT_ID = String(process.env.NOTIFY_CHAT_ID || "")
   .map(s => s.trim())
   .filter(Boolean);
 
+  
 async function sendTG(text, extra = {}) {
-  if (!NOTIFY_BOT_TOKEN || NOTIFY_CHAT_ID.length === 0) return;
+  if (!NOTIFY_BOT_TOKEN) return;
+
   const url = `https://api.telegram.org/bot${NOTIFY_BOT_TOKEN}/sendMessage`;
-  const base = { 
-    parse_mode: "HTML",
-    disable_web_page_preview: true,
-    message_thread_id: process.env.NOTIFY_THREAD_ID? Number(process.env.NOTIFY_THREAD_ID): undefined,
-    ...extra };
+
+  // Если задана тема — шлём только в один чат (а не во все из списка)
+  if (process.env.NOTIFY_THREAD_ID) {
+    const chatId = Array.isArray(NOTIFY_CHAT_ID)
+      ? NOTIFY_CHAT_ID[0] // берём первый, он всё равно единственный для темы
+      : String(NOTIFY_CHAT_ID);
+    const payload = {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      message_thread_id: Number(process.env.NOTIFY_THREAD_ID),
+      ...extra,
+    };
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      console.error("notify error:", e);
+    }
+    return; // 🔸 не продолжаем дальше
+  }
+
+  // иначе (если темы нет) — шлём во все указанные ID
+  if (!NOTIFY_CHAT_ID || NOTIFY_CHAT_ID.length === 0) return;
+  const base = { parse_mode: "HTML", disable_web_page_preview: true, ...extra };
   try {
     await Promise.all(
       NOTIFY_CHAT_ID.map(chat_id =>
