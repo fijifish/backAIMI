@@ -15,7 +15,11 @@ const NOTIFY_CHAT_ID = String(process.env.NOTIFY_CHAT_ID || "")
 async function sendTG(text, extra = {}) {
   if (!NOTIFY_BOT_TOKEN || NOTIFY_CHAT_ID.length === 0) return;
   const url = `https://api.telegram.org/bot${NOTIFY_BOT_TOKEN}/sendMessage`;
-  const base = { parse_mode: "HTML", disable_web_page_preview: true, ...extra };
+  const base = { 
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    message_thread_id: process.env.NOTIFY_THREAD_ID? Number(process.env.NOTIFY_THREAD_ID): undefined,
+    ...extra };
   try {
     await Promise.all(
       NOTIFY_CHAT_ID.map(chat_id =>
