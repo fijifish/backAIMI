@@ -625,6 +625,60 @@ app.get("/postback/mostbet", async (req, res) => {
   }
 });
 
+// Проверка депозита для Mostbet
+app.get("/mostbet/check-deposit", async (req, res) => {
+  try {
+    const { telegramId, minUsd } = req.query || {};
+    if (!telegramId) return res.status(400).json({ ok:false, error:"telegramId is required" });
+
+    const threshold = Number(minUsd ?? 0);
+    const user = await User.findOne({ telegramId: String(telegramId) }).lean();
+    if (!user) return res.status(404).json({ ok:false, error:"User not found" });
+
+    const events = Array.isArray(user?.mostbet?.events) ? user.mostbet.events : [];
+
+    // 1) Пытаемся взять сумму ФД из отдельного поля, если вы его заполняете из {fdp_usd}
+    let fdpAmountUsd = Number(user?.mostbet?.firstDepositUsd || 0);
+
+    // 2) Если не заполнено — берём из событий с статусом fdp/first_deposit
+    if (!Number.isFinite(fdpAmountUsd) || fdpAmountUsd <= 0) {
+      const fdpEvent = events.find(ev =>
+        typeof ev?.status === "string" &&
+        ["fdp","first_deposit"].includes(ev.status.toLowerCase()) &&
+        Number(ev?.amount) > 0
+      );
+      if (fdpEvent) fdpAmountUsd = Number(fdpEvent.amount) || 0;
+    }
+
+    // 3) Заодно посчитаем суммарные депозиты (ФД + повторные), вдруг пригодится на фронте
+    const totalDepositsUsd = events.reduce((sum, ev) => {
+      const st = String(ev?.status || "").toLowerCase();
+      if (["fdp","first_deposit","dep","repeat_deposit"].includes(st)) {
+        const amt = Number(ev?.amount || 0);
+        if (Number.isFinite(amt) && amt > 0) return sum + amt;
+      }
+      return sum;
+    }, 0);
+
+    const deposited = threshold > 0 ? fdpAmountUsd >= threshold : fdpAmountUsd > 0;
+    const reason = deposited ? "" :
+      (threshold > 0 ? `threshold_not_met: fdp_usd=${fdpAmountUsd}, required=${threshold}` : "no_first_deposit");
+
+    return res.json({
+      ok: true,
+      deposited,
+      fdpUsd: fdpAmountUsd,
+      totalDepositsUsd,
+      minUsd: threshold,
+      eventsCount: events.length,
+      reason,
+    });
+  } catch (e) {
+    console.error("❌ /mostbet/check-deposit error:", e);
+    return res.status(500).json({ ok:false, error:"Server error" });
+  }
+});
+
 // Вернуть мою ссылку и статистику
 app.get("/referral-info", async (req, res) => {
   try {
