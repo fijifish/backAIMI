@@ -187,9 +187,9 @@ async function notifyJettonRegistration(user, { promo_slug, click_slug } = {}) {
   ].filter(Boolean).join("\n");
 
   const text =
-    `🆕 <b>Регистрация в JETTON</b>\n` +
-    `• ${u}${inviterLine}\n` +
-    (meta ? meta + "\n" : "") +
+    `🆕 <b>Регистрация в JETTON</b>\n\n` +
+    `• ${u}${inviterLine}\n\n` +
+    (meta ? meta + "\n\n" : "") +
     `🕒 ${when}`;
   await sendTG(text);
 }
