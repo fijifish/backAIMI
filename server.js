@@ -391,11 +391,14 @@ app.post("/withdraw/create", async (req, res) => {
       return res.status(400).json({ ok:false, error: "Invalid amount" });
     }
 
-    // лёгкая валидация TRC20 (адреса Tron в Base58, начинаются с T, длина 34)
-    const addr = String(address || "").trim();
-    const isTron = /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr);
-    if (!isTron) {
-      return res.status(400).json({ ok:false, error: "Invalid TRC20 address" });
+    // ✅ Больше НЕ требуем TRC20. Принимаем любой непустой адрес.
+    // Немного санитизируем и ограничим длину, чтобы не хранить мусорные мегастроки.
+    let addr = String(address ?? "")
+      .replace(/[\u200B-\u200D\uFEFF]/g, "") // zero‑width
+      .trim();
+    addr = addr.slice(0, 255);
+    if (!addr) {
+      return res.status(400).json({ ok:false, error: "Address is required" });
     }
 
     const user = await User.findOne({ telegramId: String(telegramId) });
@@ -403,16 +406,16 @@ app.post("/withdraw/create", async (req, res) => {
 
     const order = {
       _id: new mongoose.Types.ObjectId(),
-      amount: amt,                 // сумма в USDT (как ты и хочешь)
+      amount: amt,                 // сумма в USDT
       currency: "USDT",
-      address: addr,
+      address: addr,               // теперь может быть любой строкой
       status: "в обработке",       // начальный статус
-      createdAt: new Date()
+      createdAt: new Date(),
     };
 
     await User.updateOne(
       { telegramId: String(telegramId) },
-      { $push: { withdrawOrders: { $each: [order], $position: 0 } } } // добавим в начало массива
+      { $push: { withdrawOrders: { $each: [order], $position: 0 } } }
     );
 
     return res.json({ ok: true, order });
