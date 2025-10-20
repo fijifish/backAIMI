@@ -4,6 +4,13 @@ import mongoose from "mongoose";
 import cors from "cors";
 import User from "./models/User.js";
 import crypto from "node:crypto";
+import { Telegraf, Markup } from 'telegraf';
+
+// ===== Mini App / Bot Webhook config =====
+const TG_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""; // основной бот
+const PUBLIC_URL   = process.env.PUBLIC_URL || "";          // https://<your-backend-domain>
+const WEBAPP_URL   = process.env.WEBAPP_URL || "https://onex-gifts.vercel.app"; // ссылка на мини‑апп
+const START_BANNER_URL = process.env.START_BANNER_URL || "https://i.imgur.com/9q8fW6R.jpeg"; // картинка для /start
 
 // ===== Telegram notifier helpers =====
 const NOTIFY_BOT_TOKEN = process.env.NOTIFY_BOT_TOKEN || "";
@@ -211,6 +218,42 @@ async function notifyJettonDeposit(user, { amountUsd, txId, isFirst } = {}) {
 }
 
 const app = express();
+
+// --- Telegram bot: /start -> photo + text + buttons
+let tgBot = null;
+let tgWebhookPath = null;
+if (TG_BOT_TOKEN) {
+  tgBot = new Telegraf(TG_BOT_TOKEN);
+
+  tgBot.start(async (ctx) => {
+    const name = ctx.from?.first_name || "друг";
+    const caption =
+      `Привет, <b>${name}</b>!\n` +
+      `Это AIMI TRAFFIC. Жми кнопку ниже, чтобы открыть мини‑приложение.`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.webApp("Открыть AIMI", WEBAPP_URL)],
+      // При желании добавь ещё ссылку на канал:
+      // [Markup.button.url("Наш канал", "https://t.me/aimi_traffic")]
+    ]);
+
+    try {
+      await ctx.replyWithPhoto(
+        { url: START_BANNER_URL },
+        { caption, parse_mode: "HTML", ...keyboard }
+      );
+    } catch (e) {
+      console.error("start reply error:", e);
+      await ctx.reply("Привет! Нажми кнопку ниже, чтобы открыть приложение.", keyboard);
+    }
+  });
+
+  // привяжем webhook к express
+  tgWebhookPath = `/bot${TG_BOT_TOKEN}`;
+  app.use(tgBot.webhookCallback(tgWebhookPath));
+} else {
+  console.warn("⚠️ TELEGRAM_BOT_TOKEN is not set — /start handler disabled");
+}
 
 const FIRST_DEPOSIT_REWARD_USDT = Number(process.env.FIRST_DEPOSIT_REWARD_USDT || 1);
 
@@ -893,4 +936,15 @@ app.get("/ref/:code", async (req, res) => {
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  // set webhook for bot if configured
+  if (tgBot && PUBLIC_URL && tgWebhookPath) {
+    const hookUrl = `${PUBLIC_URL}${tgWebhookPath}`;
+    tgBot.telegram.setWebhook(hookUrl)
+      .then(() => console.log("✅ Telegram webhook set:", hookUrl))
+      .catch((e) => console.error("❌ setWebhook failed:", e.message || e));
+  } else {
+    if (tgBot && !PUBLIC_URL) {
+      console.warn("⚠️ PUBLIC_URL is not set — webhook was not configured");
+    }
+  }
 });
