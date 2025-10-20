@@ -219,41 +219,39 @@ async function notifyJettonDeposit(user, { amountUsd, txId, isFirst } = {}) {
 
 const app = express();
 
-// --- Telegram bot: /start -> photo + text + buttons
-let tgBot = null;
-let tgWebhookPath = null;
-if (TG_BOT_TOKEN) {
-  tgBot = new Telegraf(TG_BOT_TOKEN);
+// --- Telegram bot: /start -> фото + подпись + кнопка (в одном сообщении)
+tgBot.start(async (ctx) => {
+  const name = ctx.from?.first_name || "друг";
+  const caption =
+    `Добро пожаловать в Aimi Traffic!\n\n` +
+    `Выполняй простые задания и получай реальные деньги на свой кошелек или банковский счёт.\n\n` +
+    `Переходи в приложение, чтоб посмотреть активные задания прямо сейчас!`;
 
-  tgBot.start(async (ctx) => {
-    const name = ctx.from?.first_name || "друг";
-    const caption =
-      `Привет, <b>${name}</b>!\n` +
-      `Это AIMI TRAFFIC. Жми кнопку ниже, чтобы открыть мини‑приложение.`;
+  // прикрепляемая к сообщению с фото inline-клавиатура
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.webApp("Открыть приложение", WEBAPP_URL)]
+    // при желании можно добавить ещё кнопку-ссылку:
+    // ,[Markup.button.url("Наш канал", "https://t.me/aimi_traffic")]
+  ]);
 
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.webApp("Открыть AIMI", WEBAPP_URL)],
-      // При желании добавь ещё ссылку на канал:
-      // [Markup.button.url("Наш канал", "https://t.me/aimi_traffic")]
-    ]);
-
-    try {
-      await ctx.replyWithPhoto(
-        { url: START_BANNER_URL },
-        { caption, parse_mode: "HTML", ...keyboard }
-      );
-    } catch (e) {
-      console.error("start reply error:", e);
-      await ctx.reply("Привет! Нажми кнопку ниже, чтобы открыть приложение.", keyboard);
-    }
-  });
-
-  // привяжем webhook к express
-  tgWebhookPath = `/bot${TG_BOT_TOKEN}`;
-  app.use(tgBot.webhookCallback(tgWebhookPath));
-} else {
-  console.warn("⚠️ TELEGRAM_BOT_TOKEN is not set — /start handler disabled");
-}
+  try {
+    await ctx.replyWithPhoto(
+      { url: START_BANNER_URL },                 // картинка
+      {
+        caption,
+        parse_mode: "HTML",
+        reply_markup: keyboard.reply_markup      // ВАЖНО: та же «reply_markup»
+      }
+    );
+  } catch (e) {
+    console.error("start reply error:", e);
+    // Фолбэк — на случай, если фото не загрузилось
+    await ctx.reply(
+      caption,
+      { parse_mode: "HTML", reply_markup: keyboard.reply_markup }
+    );
+  }
+});
 
 const FIRST_DEPOSIT_REWARD_USDT = Number(process.env.FIRST_DEPOSIT_REWARD_USDT || 1);
 
