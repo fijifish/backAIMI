@@ -220,7 +220,7 @@ async function notifyJettonDeposit(user, { amountUsd, txId, isFirst } = {}) {
 const app = express();
 
 // --- Telegram bot: /start -> фото + подпись + кнопка (в одном сообщении)
-tgBot.start(async (ctx) => {
+bot.start(async (ctx) => {
   const name = ctx.from?.first_name || "друг";
   const caption =
     `Добро пожаловать в Aimi Traffic!\n\n` +
