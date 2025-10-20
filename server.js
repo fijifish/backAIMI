@@ -890,11 +890,45 @@ if (TG_BOT_TOKEN) {
   // /start с возможным payload (например ref_XXXX)
   bot.start(async (ctx) => {
     try {
-      const payload = ctx.startPayload || ""; // то, что после /start
-      // если хочешь передать стартовые параметры в мини-апп:
-      const openLink = payload
-        ? `${WEBAPP_URL}?startapp=${encodeURIComponent(payload)}`
-        : WEBAPP_URL;
+    const payload = ctx.startPayload || ""; // то, что после /start
+
+    // 1) найдём/создадим пользователя по Telegram ID
+    const tgId = String(ctx.from?.id || "");
+    let me = tgId ? await User.findOne({ telegramId: tgId }) : null;
+    if (!me && tgId) {
+      me = await User.create({
+        telegramId: tgId,
+        username: ctx.from?.username || null,
+        firstName: ctx.from?.first_name || null,
+        lastName: ctx.from?.last_name || null,
+        photoUrl: null,
+        balance: 0
+      });
+    }
+
+    // 2) гарантируем реф-код
+    let myRefCode = null;
+    if (me) {
+      try {
+        myRefCode = await ensureUserRefCode(me);
+      } catch {}
+    }
+
+    // 3) собираем ссылку с параметрами ?startapp=...&ref=...
+    let openLink = WEBAPP_URL;
+    try {
+      const u = new URL(WEBAPP_URL);
+      if (payload) u.searchParams.set("startapp", payload);
+      if (myRefCode) u.searchParams.set("ref", myRefCode);
+      openLink = u.toString();
+    } catch {
+      // fallback, если WEBAPP_URL без протокола
+      const params = new URLSearchParams();
+      if (payload) params.set("startapp", payload);
+      if (myRefCode) params.set("ref", myRefCode);
+      openLink = `${WEBAPP_URL}${params.toString() ? "?" + params.toString() : ""}`;
+    }
+
 
       const caption = [
         "Добро пожаловать в Aimi Traffic!",
