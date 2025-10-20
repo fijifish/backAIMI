@@ -32,6 +32,11 @@ async function sendTG(text, extra = {}) {
   }
 }
 
+// ===== Mini App bot config =====
+const TG_BOT_TOKEN    = process.env.TELEGRAM_BOT_TOKEN || "";
+const WEBAPP_URL      = process.env.WEBAPP_URL || "https://onex-gifts.vercel.app"; // твой фронт
+const START_BANNER_URL = process.env.START_BANNER_URL || ""; // URL картинки для /start (опционально)
+
 // ——— helper: build inviter line from user doc
 function inviterLineFromUser(user) {
   const inv = user?.referral?.referredBy;
@@ -876,6 +881,48 @@ app.get("/referral-info", async (req, res) => {
   }
 });
 
+// ===== Telegram Mini App bot (optional) =====
+let bot = null;
+
+if (TG_BOT_TOKEN) {
+  bot = new Telegraf(TG_BOT_TOKEN);
+
+  // /start с возможным payload (например ref_XXXX)
+  bot.start(async (ctx) => {
+    try {
+      const payload = ctx.startPayload || ""; // то, что после /start
+      // если хочешь передать стартовые параметры в мини-апп:
+      const openLink = payload
+        ? `${WEBAPP_URL}?startapp=${encodeURIComponent(payload)}`
+        : WEBAPP_URL;
+
+      const caption = "Добро пожаловать! Нажмите кнопку, чтобы продолжить.";
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.webApp("Открыть приложение", openLink)]
+      ]);
+
+      if (START_BANNER_URL) {
+        await ctx.replyWithPhoto(
+          { url: START_BANNER_URL },
+          { caption, ...keyboard }
+        );
+      } else {
+        await ctx.reply(caption, keyboard);
+      }
+    } catch (e) {
+      console.error("bot.start error:", e);
+      try {
+        await ctx.reply(
+          "Добро пожаловать! Откройте приложение по кнопке ниже.",
+          Markup.inlineKeyboard([[Markup.button.webApp("Открыть приложение", WEBAPP_URL)]])
+        );
+      } catch {}
+    }
+  });
+} else {
+  console.warn("⚠️ TELEGRAM_BOT_TOKEN is not set — Telegram bot is disabled");
+}
+
 // Редирект по короткой ссылке /ref/<code> -> к боту
 app.get("/ref/:code", async (req, res) => {
   try {
@@ -894,4 +941,9 @@ app.get("/ref/:code", async (req, res) => {
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  if (bot) {
+    bot.launch()
+      .then(() => console.log("✅ Telegram bot launched (long polling)"))
+      .catch((e) => console.error("❌ Bot launch error:", e));
+  }
 });
