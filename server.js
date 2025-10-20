@@ -896,7 +896,13 @@ if (TG_BOT_TOKEN) {
         ? `${WEBAPP_URL}?startapp=${encodeURIComponent(payload)}`
         : WEBAPP_URL;
 
-      const caption = "Добро пожаловать! Нажмите кнопку, чтобы продолжить.";
+      const caption = [
+        "Добро пожаловать в Aimi Traffic!",
+        "",
+        "Выполняй простые задания и получай реальные деньги на свой кошелек.",
+        "",
+        "Переходи в приложение, чтоб посмотреть активные задания прямо сейчас!"
+      ].join("\n");
       const keyboard = Markup.inlineKeyboard([
         [Markup.button.webApp("Открыть приложение", openLink)]
       ]);
