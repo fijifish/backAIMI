@@ -60,6 +60,23 @@ async function ensureUserRefCode(user) {
   return code;
 }
 
+// server.js (вверху рядом с другими хелперами)
+async function creditRewardUSD(telegramId, totalUSD, unlockedUSD = 5) {
+  const total = Math.max(0, Number(totalUSD) || 0);
+  const unlocked = Math.min(total, Math.max(0, Number(unlockedUSD) || 0));
+  const locked = total - unlocked;
+
+  return await User.updateOne(
+    { telegramId: String(telegramId) },
+    {
+      $inc: {
+        "balances.usdAvailable": unlocked,
+        "balances.usdLocked": locked
+      }
+    }
+  );
+}
+
 // Поддерживаем ref как код ИЛИ как telegramId пригласившего
 async function attachReferralIfAny(newUser, refRaw) {
   const ref = String(refRaw || "").trim();
@@ -220,7 +237,8 @@ const app = express();
 
 const FIRST_DEPOSIT_REWARD_USDT = Number(process.env.FIRST_DEPOSIT_REWARD_USDT || 1);
 
-const MOSTBET_REWARD_TON = Number(process.env.MOSTBET_REWARD_TON || 50);
+const CHANNEL_REWARD_USD = Number(process.env.CHANNEL_REWARD_USD || 5);   // награда за подписку
+const MOSTBET_REWARD_USD = Number(process.env.MOSTBET_REWARD_USD || 50);  // награда за Мостбет
 
 app.use(cors({
   origin: [
@@ -353,11 +371,19 @@ app.post("/tasks/channel/verify", async (req, res) => {
     if (!isSub) return res.json({ ok:true, status:"not_subscribed" });
 
     // Атомарно — чтобы не начислить дважды на гонках
+    // 1) Сначала атомарно помечаем, что задание выполнено (без денег)
     const upd = await User.updateOne(
       { telegramId: String(telegramId), "tasks.channelSubscribed": { $ne: true } },
-      { $inc: { balanceTon: Number(process.env.CHANNEL_REWARD_TON || 0) },
-        $set: { "tasks.channelSubscribed": true } }
+      { $set: { "tasks.channelSubscribed": true } }
     );
+
+    // если уже было выполнено — выходим
+    if (upd.modifiedCount === 0) {
+      return res.json({ ok:true, status:"already_claimed" });
+    }
+
+    // 2) Теперь начисляем деньги по новой схеме: 5$ доступно, остаток в «locked»
+    await creditRewardUSD(telegramId, CHANNEL_REWARD_USD, 5);
 
     try {
       await notifyChannelSubscribed({
@@ -900,17 +926,30 @@ app.post("/tasks/mostbet/verify", async (req, res) => {
       });
     }
 
-    // ✅ Начислить награду и пометить выполненным — атомарно и один раз
+    // 1) Сначала помечаем как выполненное (без денег)
     const upd = await User.updateOne(
       { telegramId: String(telegramId), "tasks.mostbetCompleted": { $ne: true } },
       {
-        $inc: { balanceTon: MOSTBET_REWARD_TON },
         $set: {
           "tasks.mostbetCompleted": true,
           "tasks.mostbetRewardedAt": new Date()
         }
       }
     );
+
+    // если уже было выполнено — выходим
+    if (upd.modifiedCount === 0) {
+      const fresh = await User.findOne({ telegramId: String(telegramId) });
+      return res.json({
+        ok: true,
+        status: "already_completed",
+        reward: 0,
+        user: fresh
+      });
+    }
+
+    // 2) Начисляем деньги по новой схеме
+    await creditRewardUSD(telegramId, MOSTBET_REWARD_USD, 5);
 
     // перечитаем пользователя для фронта
     const fresh = await User.findOne({ telegramId: String(telegramId) });
@@ -1056,6 +1095,25 @@ app.get("/ref/:code", async (req, res) => {
   } catch (e) {
     console.error("/ref/:code error:", e);
     res.status(500).type("text/plain").send("Server error");
+  }
+});
+
+// server.js
+app.get("/balances", async (req, res) => {
+  try {
+    const { telegramId } = req.query || {};
+    if (!telegramId) return res.status(400).json({ ok:false, error:"telegramId is required" });
+
+    const user = await User.findOne({ telegramId: String(telegramId) }, { balances: 1 }).lean();
+    if (!user) return res.status(404).json({ ok:false, error:"User not found" });
+
+    const usdAvailable = Number(user?.balances?.usdAvailable || 0);
+    const usdLocked    = Number(user?.balances?.usdLocked || 0);
+
+    res.json({ ok:true, usdAvailable, usdLocked });
+  } catch (e) {
+    console.error("/balances error:", e);
+    res.status(500).json({ ok:false, error:"Server error" });
   }
 });
 
