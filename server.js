@@ -943,7 +943,7 @@ app.post("/tasks/mostbet/verify", async (req, res) => {
       return res.json({
         ok: true,
         status: "already_completed",
-        reward: 0,
+        rewardUsd: 0,
         user: fresh
       });
     }
@@ -957,7 +957,7 @@ app.post("/tasks/mostbet/verify", async (req, res) => {
     return res.json({
       ok: true,
       status: upd.modifiedCount ? "rewarded" : "already_completed",
-      reward: upd.modifiedCount ? MOSTBET_REWARD_TON : 0,
+      rewardUsd: upd.modifiedCount ? MOSTBET_REWARD_USD : 0,
       user: fresh
     });
   } catch (e) {
