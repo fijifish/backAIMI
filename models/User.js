@@ -10,6 +10,11 @@ const userSchema = new mongoose.Schema(
 
     balanceTon: { type: Number, default: 0 },
 
+      balances: {
+        usdAvailable: { type: Number, default: 0 }, // доступно к выводу
+        usdLocked:    { type: Number, default: 0 }, // заблокировано до выполнения всех задач
+      },
+
     tasks: {
       channelSubscribed: { type: Boolean, default: false },
       mostbetCompleted:   { type: Boolean, default: false },
