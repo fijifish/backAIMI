@@ -220,6 +220,8 @@ const app = express();
 
 const FIRST_DEPOSIT_REWARD_USDT = Number(process.env.FIRST_DEPOSIT_REWARD_USDT || 1);
 
+const MOSTBET_REWARD_TON = Number(process.env.MOSTBET_REWARD_TON || 50);
+
 app.use(cors({
   origin: [
     "https://onex-gifts.vercel.app"                     // ← для локальной разработки
@@ -844,6 +846,83 @@ app.get("/mostbet/check-deposit", async (req, res) => {
     });
   } catch (e) {
     console.error("❌ /mostbet/check-deposit error:", e);
+    return res.status(500).json({ ok:false, error:"Server error" });
+  }
+});
+
+// ✅ Отметить выполнение задания MOSTBET и начислить награду (идемпотентно)
+// Принимает: { telegramId, minUsd? }
+app.post("/tasks/mostbet/verify", async (req, res) => {
+  try {
+    const { telegramId, minUsd } = req.body || {};
+    if (!telegramId) return res.status(400).json({ ok:false, error:"telegramId is required" });
+
+    // Берём пользователя
+    const user = await User.findOne({ telegramId: String(telegramId) }).lean();
+    if (!user) return res.status(404).json({ ok:false, error:"User not found" });
+
+    // Если уже отмечен как выполненный — без повторной выдачи
+    if (user?.tasks?.mostbetCompleted === true) {
+      return res.json({
+        ok: true,
+        status: "already_completed",
+        reward: 0,
+        user
+      });
+    }
+
+    // Повторяем логику /mostbet/check-deposit
+    const threshold = Number(minUsd ?? 0);
+    const events = Array.isArray(user?.mostbet?.events) ? user.mostbet.events : [];
+
+    // 1) ФД из отдельного поля
+    let fdpAmountUsd = Number(user?.mostbet?.firstDepositUsd || 0);
+
+    // 2) Если не заполнено — ищем в событиях fdp/first_deposit
+    if (!Number.isFinite(fdpAmountUsd) || fdpAmountUsd <= 0) {
+      const fdpEvent = events.find(ev =>
+        typeof ev?.status === "string" &&
+        ["fdp","first_deposit"].includes(ev.status.toLowerCase()) &&
+        Number(ev?.amount) > 0
+      );
+      if (fdpEvent) fdpAmountUsd = Number(fdpEvent.amount) || 0;
+    }
+
+    // Условие выполнения
+    const deposited = threshold > 0 ? fdpAmountUsd >= threshold : fdpAmountUsd > 0;
+    if (!deposited) {
+      return res.json({
+        ok: true,
+        status: "not_completed",
+        reason: (threshold > 0
+          ? `threshold_not_met: fdp_usd=${fdpAmountUsd}, required=${threshold}`
+          : "no_first_deposit")
+      });
+    }
+
+    // ✅ Начислить награду и пометить выполненным — атомарно и один раз
+    const upd = await User.updateOne(
+      { telegramId: String(telegramId), "tasks.mostbetCompleted": { $ne: true } },
+      {
+        $inc: { balanceTon: MOSTBET_REWARD_TON },
+        $set: {
+          "tasks.mostbetCompleted": true,
+          "tasks.mostbetRewardedAt": new Date()
+        }
+      }
+    );
+
+    // перечитаем пользователя для фронта
+    const fresh = await User.findOne({ telegramId: String(telegramId) });
+
+    return res.json({
+      ok: true,
+      status: upd.modifiedCount ? "rewarded" : "already_completed",
+      reward: upd.modifiedCount ? MOSTBET_REWARD_TON : 0,
+      user: fresh
+    });
+  } catch (e) {
+    console.error("❌ /tasks/mostbet/verify error:", e);
     return res.status(500).json({ ok:false, error:"Server error" });
   }
 });
