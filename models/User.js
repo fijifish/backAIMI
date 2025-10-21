@@ -12,7 +12,8 @@ const userSchema = new mongoose.Schema(
 
     tasks: {
       channelSubscribed: { type: Boolean, default: false },
-      mostbetCompleted:   { type: Boolean, default: false }
+      mostbetCompleted:   { type: Boolean, default: false },
+      mostbetRewardedAt:  { type: Date,    default: null }
     },
 
     lastSeenAt: { type: Date, default: null },
