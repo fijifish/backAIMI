@@ -164,7 +164,7 @@ async function notifyChannelSubscribed({ user, telegramId, username, chatId, rew
     `Подписка на канал подтверждена\n\n` +
     `• ${u}${name}${inviterLine}\n\n` +
     `ℹ️ Канал: <code>${chatId || process.env.CHANNEL_ID || "n/a"}</code>\n` +
-    `🎁 Награда: ${rewardTon ?? process.env.CHANNEL_REWARD_TON ?? 0} TON\n\n` +
+    `🎁 Награда: ${rewardTon ?? process.env.CHANNEL_REWARD_TON ?? 5} TON\n\n` +
     `🕒 ${when}`;
   await sendTG(text);
 }
