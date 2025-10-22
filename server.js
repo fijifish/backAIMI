@@ -115,7 +115,6 @@ async function gbFetch(path, { method = "GET", body } = {}) {
   const base = process.env.GETBONUS_API || "";
   const key  = process.env.GETBONUS_API_KEY || "";
 
-  // Собираем URL и дублируем api_key в query — у них так обычно «надёжнее»
   let fullUrl = base + path;
   try {
     const u = new URL(fullUrl);
@@ -123,19 +122,21 @@ async function gbFetch(path, { method = "GET", body } = {}) {
     fullUrl = u.toString();
   } catch {}
 
+  // ⬇️ добавь эту строку
+  console.log("[GetBonus] →", method, fullUrl, body ? JSON.stringify(body) : "");
+
   const r = await fetch(fullUrl, {
     method,
     headers: { "Content-Type": "application/json", "api_key": key },
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  // читаем тело один раз, пытаемся распарсить и логируем при ошибке
   const raw = await r.text().catch(() => "");
   let data = {};
   try { data = raw ? JSON.parse(raw) : {}; } catch { data = { message: raw }; }
 
   if (!r.ok) {
-    console.error("[GetBonus] HTTP", r.status, "→", data);
+    console.error("[GetBonus] HTTP", r.status, "←", data);
     throw new Error(`GB ${r.status}`);
   }
   return data;
@@ -1194,10 +1195,13 @@ app.get("/gb/tasks", async (req, res) => {
     }).toString();
 
     const data = await gbFetch(`/getTasks?${q}`);
-    res.json({ ok:true, tasks: data?.tasks || [] });
+    console.log("[GB] getTasks ok:", { telegram_id, user_device, count: (data?.tasks||[]).length });
+    // ↓ временно отдаём raw
+    res.json({ ok:true, tasks: data?.tasks || [], raw: data });
   } catch (e) {
     console.error("GET /gb/tasks Error:", e);
-    res.status(502).json({ ok:false, error:e.message });
+    // ↓ временно отдаём текст ошибки наружу, чтобы было видно в Network
+    res.status(502).json({ ok:false, error:String(e) });
   }
 });
 
