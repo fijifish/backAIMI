@@ -422,7 +422,7 @@ app.post("/tasks/channel/verify", async (req, res) => {
           telegramId: String(telegramId),
           username: user?.username,
           chatId: process.env.CHANNEL_ID,
-          rewardTon: Number(process.env.CHANNEL_REWARD_TON || 0),
+          rewardTon: Number(process.env.CHANNEL_REWARD_TON || 5),
         });
       } catch (e) {
       console.error("notify channel_subscribed (already) error:", e);
@@ -433,7 +433,7 @@ app.post("/tasks/channel/verify", async (req, res) => {
     }
 
     const fresh = await User.findOne({ telegramId: String(telegramId) });
-    return res.json({ ok:true, status:"rewarded", reward:{ ton:Number(process.env.CHANNEL_REWARD_TON||0) }, user:fresh });
+    return res.json({ ok:true, status:"rewarded", reward:{ ton:Number(process.env.CHANNEL_REWARD_TON||5) }, user:fresh });
   } catch (e) {
     console.error("/tasks/channel/verify error:", e);
     res.status(500).json({ ok:false, error:"Server error" });
