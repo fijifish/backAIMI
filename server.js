@@ -1271,8 +1271,11 @@ app.get("/gb/click", async (req, res) => {
     // У GB ссылка может лежать в разных полях
     const link =
       data?.link ||
+      data?.url ||
       data?.body?.link ||
+      data?.body?.url ||
       data?.result?.link ||
+      data?.result?.url ||
       (typeof data === "string" && /^https?:\/\//i.test(data) ? data : null);
 
     if (!link) {
