@@ -1190,8 +1190,8 @@ app.get("/gb/tasks", async (req, res) => {
       Array.isArray(data?.tasks) ? data.tasks :
       Array.isArray(data?.body)  ? data.body  : [];
 
-    // — показываем только конкретные офферы (Winline #22, BetBoom #81)
-    const whitelist = [22, 81];
+    // — показываем только конкретные офферы (Winline #22, BetBoom #81, +28)
+    const whitelist = [22, 81, 28];
     const tasksFiltered = (tasks || []).filter(
       (t) => whitelist.includes(Number(t?.id ?? t?.task_id))
     );
