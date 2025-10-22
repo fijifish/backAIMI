@@ -111,18 +111,33 @@ async function attachReferralIfAny(newUser, refRaw) {
   );
 }
 
-async function gbFetch(path, { method="GET", body } = {}) {
-  const url = `${process.env.GETBONUS_API}${path}`;
-  const r = await fetch(url, {
+async function gbFetch(path, { method = "GET", body } = {}) {
+  const base = process.env.GETBONUS_API || "";
+  const key  = process.env.GETBONUS_API_KEY || "";
+
+  // Собираем URL и дублируем api_key в query — у них так обычно «надёжнее»
+  let fullUrl = base + path;
+  try {
+    const u = new URL(fullUrl);
+    if (key && !u.searchParams.has("api_key")) u.searchParams.set("api_key", key);
+    fullUrl = u.toString();
+  } catch {}
+
+  const r = await fetch(fullUrl, {
     method,
-    headers: {
-      "Content-Type": "application/json",
-      "api_key": process.env.GETBONUS_API_KEY,
-    },
+    headers: { "Content-Type": "application/json", "api_key": key },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data?.message || `GB ${r.status}`);
+
+  // читаем тело один раз, пытаемся распарсить и логируем при ошибке
+  const raw = await r.text().catch(() => "");
+  let data = {};
+  try { data = raw ? JSON.parse(raw) : {}; } catch { data = { message: raw }; }
+
+  if (!r.ok) {
+    console.error("[GetBonus] HTTP", r.status, "→", data);
+    throw new Error(`GB ${r.status}`);
+  }
   return data;
 }
 
@@ -249,6 +264,7 @@ async function notifyJettonDeposit(user, { amountUsd, txId, isFirst } = {}) {
 }
 
 const app = express();
+app.set("trust proxy", true);
 
 const FIRST_DEPOSIT_REWARD_USDT = Number(process.env.FIRST_DEPOSIT_REWARD_USDT || 1);
 
@@ -1138,7 +1154,11 @@ app.get("/gb/tasks", async (req, res) => {
     const telegram_id = String(req.query.telegramId || "");
     if (!telegram_id) return res.status(400).json({ ok:false, error:"telegramId required" });
 
-    const user_ip     = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || "";
+    const user_ip =
+      (req.headers["x-forwarded-for"]?.split(",")[0]?.trim()) ||
+      req.ip ||
+      req.socket?.remoteAddress || "";
+
     const user_device = req.headers["user-agent"] || "";
 
     const q = new URLSearchParams({
