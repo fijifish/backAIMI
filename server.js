@@ -111,6 +111,21 @@ async function attachReferralIfAny(newUser, refRaw) {
   );
 }
 
+async function gbFetch(path, { method="GET", body } = {}) {
+  const url = `${process.env.GETBONUS_API}${path}`;
+  const r = await fetch(url, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "api_key": process.env.GETBONUS_API_KEY,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data?.message || `GB ${r.status}`);
+  return data;
+}
+
 async function notifyAppOpen(user) {
   const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
   const name = user?.firstName ? ` (${user.firstName})` : "";
@@ -1114,6 +1129,86 @@ app.get("/balances", async (req, res) => {
   } catch (e) {
     console.error("/balances error:", e);
     res.status(500).json({ ok:false, error:"Server error" });
+  }
+});
+
+// --- 1) Доступные офферы для юзера ---
+app.get("/gb/tasks", async (req, res) => {
+  try {
+    const telegram_id = String(req.query.telegramId || "");
+    if (!telegram_id) return res.status(400).json({ ok:false, error:"telegramId required" });
+
+    const user_ip     = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || "";
+    const user_device = req.headers["user-agent"] || "";
+
+    const q = new URLSearchParams({
+      telegram_id, user_ip, user_device,
+    }).toString();
+
+    const data = await gbFetch(`/getTasks?${q}`);
+    res.json({ ok:true, tasks: data?.tasks || [] });
+  } catch (e) {
+    console.error("GET /gb/tasks", e);
+    res.status(502).json({ ok:false, error:e.message });
+  }
+});
+
+// --- 2) Создать клик (получить уникальную ссылку) ---
+app.post("/gb/click", async (req, res) => {
+  try {
+    const { telegramId, taskId } = req.body || {};
+    if (!telegramId || !taskId) return res.status(400).json({ ok:false, error:"telegramId & taskId required" });
+
+    const data = await gbFetch("/createClick", {
+      method:"POST",
+      body:{ telegram_id:String(telegramId), task_id:String(taskId) }
+    });
+
+    const url = data?.link;
+    if (!url) throw new Error("No link from GetBonus");
+    res.json({ ok:true, url });
+  } catch (e) {
+    console.error("POST /gb/click", e);
+    res.status(502).json({ ok:false, error:e.message });
+  }
+});
+
+// --- 3) Проверка выполнения оффера ---
+app.post("/gb/check", async (req, res) => {
+  try {
+    const { telegramId, taskId } = req.body || {};
+    if (!telegramId || !taskId) return res.status(400).json({ ok:false, error:"telegramId & taskId required" });
+
+    const data = await gbFetch("/checkUserTask", {
+      method:"POST",
+      body:{ telegram_id:String(telegramId), task_id:String(taskId) }
+    });
+
+    // у них бывает status/done/result — вернём как есть
+    res.json({ ok:true, raw:data, status: data?.status ?? data?.done ?? data?.result ?? null });
+  } catch (e) {
+    console.error("POST /gb/check", e);
+    res.status(502).json({ ok:false, error:e.message });
+  }
+});
+
+// --- 4) Постбэк от GetBonus (если включат) ---
+app.post("/postback/getbonus", async (req, res) => {
+  try {
+    const { type, code, telegram_id, task_id } = req.body || {};
+    if (process.env.GETBONUS_POSTBACK_CODE && code !== process.env.GETBONUS_POSTBACK_CODE) {
+      return res.status(403).json({ ok:false });
+    }
+    if (type !== "refDoneTask") return res.status(200).json({ ok:true });
+
+    // тут можешь начислить награду/слать нотиф
+    // const user = await User.findOne({ telegramId:String(telegram_id) });
+    // await notify(...)
+
+    return res.json({ ok:true });
+  } catch (e) {
+    console.error("POST /postback/getbonus", e);
+    return res.status(200).json({ ok:true }); // 200, чтобы они не ретраили
   }
 });
 
