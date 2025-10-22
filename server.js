@@ -1175,10 +1175,10 @@ app.get("/gb/tasks", async (req, res) => {
     const user_device = (() => {
       const p = String(rawPlatform).toLowerCase();
       const s = (ua || "").toLowerCase();
-      if (p.includes("ios") || s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
+      if (p.includes("ios") || p.includes("macos") || s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
       if (p.includes("android") || s.includes("android")) return "android";
-      // ⚙️ fallback — GetBonus не принимает web/macos, так что дефолт: android
-      return "android";
+      // fallback: выберем iOS — больше офферов под iOS, чем "android" на десктопах
+      return "ios";
     })();
 
     const q = new URLSearchParams({ telegram_id, user_ip, user_device }).toString();
@@ -1238,10 +1238,10 @@ app.get("/gb/click", async (req, res) => {
     const user_device = (() => {
       const p = String(rawPlatform).toLowerCase();
       const s = (ua || "").toLowerCase();
-      if (p.includes("ios") || s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
+      if (p.includes("ios") || p.includes("macos") || s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
       if (p.includes("android") || s.includes("android")) return "android";
-      // ⚙️ fallback — GetBonus не принимает web/macos, так что дефолт: android
-      return "android";
+      // fallback: выберем iOS — больше офферов под iOS, чем "android" на десктопах
+      return "ios";
     })();
 
     const base = process.env.GETBONUS_API || "";
@@ -1256,7 +1256,7 @@ app.get("/gb/click", async (req, res) => {
       user_device,
     }).toString();
     const url = `${base}/createClick?${qs}`;
-    console.log("[GetBonus] → GET", url, { telegramId, taskId, user_ip, user_device });
+    console.log("[GetBonus] → GET", url, { telegramId, taskId, user_ip, user_device, ua });
 
     const r = await fetch(url, { method: "GET" });
     const raw = await r.text().catch(() => "");
@@ -1265,11 +1265,21 @@ app.get("/gb/click", async (req, res) => {
 
     if (!r.ok) {
       console.error("[GetBonus] HTTP", r.status, "←", data);
-      return res.status(502).json({ ok:false, error: data?.error || `GB ${r.status}` });
+      return res.status(502).json({ ok:false, error: data?.error || data?.message || `GB ${r.status}`, raw: data });
     }
 
-    const link = data?.link;
-    if (!link) return res.status(502).json({ ok:false, error: "No link from GetBonus" });
+    // У GB ссылка может лежать в разных полях
+    const link =
+      data?.link ||
+      data?.body?.link ||
+      data?.result?.link ||
+      (typeof data === "string" && /^https?:\/\//i.test(data) ? data : null);
+
+    if (!link) {
+      console.error("[GetBonus] createClick: no link field in response:", data);
+      return res.status(502).json({ ok:false, error: "No link from GetBonus", raw: data });
+    }
+
     return res.json({ ok:true, url: link });
   } catch (e) {
     console.error("GET /gb/click Error:", e);
