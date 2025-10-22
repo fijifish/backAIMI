@@ -1154,21 +1154,49 @@ app.get("/gb/tasks", async (req, res) => {
     const telegram_id = String(req.query.telegramId || "");
     if (!telegram_id) return res.status(400).json({ ok:false, error:"telegramId required" });
 
+    // --- IP: пробуем взять из разных заголовков CDN/прокси, затем fallback на req.ip ---
     const user_ip =
+      (req.headers["x-real-ip"]) ||
+      (req.headers["cf-connecting-ip"]) ||
       (req.headers["x-forwarded-for"]?.split(",")[0]?.trim()) ||
       req.ip ||
-      req.socket?.remoteAddress || "";
+      req.socket?.remoteAddress ||
+      "";
 
-    const user_device = req.headers["user-agent"] || "";
+    // --- Платформа из Telegram/WebApp (фронт передаёт ?platform=...) + нормализация ---
+    const rawPlatform = String(
+      req.query.platform ||
+      req.headers["x-telegram-platform"] ||   // если вдруг пробрасываешь с фронта
+      ""
+    ).toLowerCase().trim();
+
+    const ua = req.headers["user-agent"] || "";
+
+    function normalizeDevice(p, uaStr) {
+      if (p === "ios") return "ios";
+      if (p === "android") return "android";
+      if (p === "macos" || p === "mac" || p === "windows" || p === "linux" || p === "tdesktop" || p === "webk") {
+        return "web";
+      }
+      // По user-agent, если platform не пришла или непонятна
+      const s = (uaStr || "").toLowerCase();
+      if (s.includes("android")) return "android";
+      if (s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
+      return "web";
+    }
+
+    const user_device = normalizeDevice(rawPlatform, ua);
 
     const q = new URLSearchParams({
-      telegram_id, user_ip, user_device,
+      telegram_id,
+      user_ip,
+      user_device,
     }).toString();
 
     const data = await gbFetch(`/getTasks?${q}`);
     res.json({ ok:true, tasks: data?.tasks || [] });
   } catch (e) {
-    console.error("GET /gb/tasks", e);
+    console.error("GET /gb/tasks Error:", e);
     res.status(502).json({ ok:false, error:e.message });
   }
 });
