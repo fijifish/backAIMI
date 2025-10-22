@@ -1207,14 +1207,14 @@ app.get("/gb/tasks", async (req, res) => {
 // --- 2) Создать клик (получить уникальную ссылку) ---
 // --- 2) Создать клик (получить уникальную ссылку) ---
 // --- 2) Создать клик (получить уникальную ссылку) ---
-app.post("/gb/click", async (req, res) => {
+app.get("/gb/click", async (req, res) => {
   try {
-    let { telegramId, taskId } = req.body || {};
+    let { telegramId, taskId } = req.query || {};
     if (!telegramId || !taskId) {
       return res.status(400).json({ ok:false, error:"telegramId & taskId required" });
     }
 
-    // строгий числовой telegram_id (их валидатор иногда ругается на строки)
+    // строгий числовой telegram_id
     telegramId = String(telegramId).trim();
     if (!/^\d+$/.test(telegramId)) {
       return res.status(400).json({ ok:false, error:"telegramId must be digits" });
@@ -1227,7 +1227,7 @@ app.post("/gb/click", async (req, res) => {
       (req.headers["x-forwarded-for"]?.split(",")[0]?.trim()) ||
       req.ip || req.socket?.remoteAddress || "";
 
-    const rawPlatform = String(req.headers["x-telegram-platform"] || req.query.platform || "")
+    const rawPlatform = String(req.query.platform || req.headers["x-telegram-platform"] || "")
       .toLowerCase().trim();
     const ua = req.headers["user-agent"] || "";
     const user_device = ((p, uaStr) => {
@@ -1241,91 +1241,49 @@ app.post("/gb/click", async (req, res) => {
 
     const base = process.env.GETBONUS_API || "";
     const key  = process.env.GETBONUS_API_KEY || "";
-    const url  = `${base}/createClick?api_key=${encodeURIComponent(key)}`;
 
-    // try #1: x-www-form-urlencoded
-    const form = new URLSearchParams({
-      telegram_id: telegramId,           // цифры
+    // ▶️ теперь делаем чистый GET к их API как они попросили
+    const qs = new URLSearchParams({
+      api_key: key,
+      telegram_id: telegramId,
       task_id: String(taskId),
       user_ip,
       user_device,
-    });
-    console.log("[GetBonus] → POST form", url, form.toString());
+    }).toString();
+    const url = `${base}/createClick?${qs}`;
+    console.log("[GetBonus] → GET", url);
 
-    let r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-    });
-
-    // try #2: JSON
-    if (!r.ok) {
-      const dbg = await r.text().catch(() => "");
-      console.warn("[GetBonus] createClick form failed:", r.status, dbg);
-
-      r = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "api_key": key },
-        body: JSON.stringify({
-          telegram_id: Number(telegramId), // числом
-          task_id: Number(taskId),
-          user_ip,
-          user_device,
-        }),
-      });
-    }
-
-    // try #3: чисто querystring (без тела)
-    if (!r.ok) {
-      const dbg2 = await r.text().catch(() => "");
-      console.warn("[GetBonus] createClick json failed:", r.status, dbg2);
-
-      const qs = new URLSearchParams({
-        api_key: key,
-        telegram_id: telegramId,
-        task_id: String(taskId),
-        user_ip,
-        user_device,
-      }).toString();
-      const qurl = `${base}/createClick?${qs}`;
-      console.log("[GetBonus] → POST qs-no-body", qurl);
-
-      r = await fetch(qurl, { method: "POST" });
-    }
-
+    const r = await fetch(url, { method: "GET" });
     const raw = await r.text().catch(() => "");
     let data = {};
     try { data = raw ? JSON.parse(raw) : {}; } catch { data = { message: raw }; }
 
     if (!r.ok) {
       console.error("[GetBonus] HTTP", r.status, "←", data);
-      throw new Error(data?.error || `GB ${r.status}`);
+      return res.status(502).json({ ok:false, error: data?.error || `GB ${r.status}` });
     }
 
     const link = data?.link;
-    if (!link) throw new Error("No link from GetBonus");
+    if (!link) return res.status(502).json({ ok:false, error: "No link from GetBonus" });
     return res.json({ ok:true, url: link });
   } catch (e) {
-    console.error("POST /gb/click Error:", e);
+    console.error("GET /gb/click Error:", e);
     res.status(502).json({ ok:false, error: e.message });
   }
 });
 
 // --- 3) Проверка выполнения оффера ---
-app.post("/gb/check", async (req, res) => {
+app.get("/gb/check", async (req, res) => {
   try {
-    const { telegramId, taskId } = req.body || {};
+    const { telegramId, taskId } = req.query || {};
     if (!telegramId || !taskId) return res.status(400).json({ ok:false, error:"telegramId & taskId required" });
 
-    const data = await gbFetch("/checkUserTask", {
-      method:"POST",
-      body:{ telegram_id:String(telegramId), task_id:String(taskId) }
-    });
+    const qs = new URLSearchParams({ telegram_id:String(telegramId), task_id:String(taskId) }).toString();
+    const data = await gbFetch(`/checkUserTask?${qs}`); // GET
 
-    // у них бывает status/done/result — вернём как есть
     res.json({ ok:true, raw:data, status: data?.status ?? data?.done ?? data?.result ?? null });
   } catch (e) {
-    console.error("POST /gb/check", e);
+    console.error("GET /gb/check", e);
     res.status(502).json({ ok:false, error:e.message });
   }
 });
