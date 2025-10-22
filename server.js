@@ -266,6 +266,13 @@ async function notifyJettonDeposit(user, { amountUsd, txId, isFirst } = {}) {
 
 const app = express();
 app.set("trust proxy", true);
+// 🔎 lightweight request logger (method + path)
+app.use((req, _res, next) => {
+  try {
+    console.log(`[REQ] ${req.method} ${req.originalUrl}`);
+  } catch {}
+  next();
+});
 
 const FIRST_DEPOSIT_REWARD_USDT = Number(process.env.FIRST_DEPOSIT_REWARD_USDT || 1);
 
@@ -273,9 +280,7 @@ const CHANNEL_REWARD_USD = Number(process.env.CHANNEL_REWARD_USD || 5);   // н�
 const MOSTBET_REWARD_USD = Number(process.env.MOSTBET_REWARD_USD || 50);  // награда за Мостбет
 
 app.use(cors({
-  origin: [
-    "https://onex-gifts.vercel.app"                     // ← для локальной разработки
-  ],
+  origin: (origin, cb) => cb(null, true), // allow all for now (Railway behind TLS)
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "x-telegram-id", "x-telegram-platform"],
   optionsSuccessStatus: 204
@@ -1251,7 +1256,7 @@ app.get("/gb/click", async (req, res) => {
       user_device,
     }).toString();
     const url = `${base}/createClick?${qs}`;
-    console.log("[GetBonus] → GET", url);
+    console.log("[GetBonus] → GET", url, { telegramId, taskId, user_ip, user_device });
 
     const r = await fetch(url, { method: "GET" });
     const raw = await r.text().catch(() => "");
