@@ -1185,13 +1185,19 @@ app.get("/gb/tasks", async (req, res) => {
       Array.isArray(data?.tasks) ? data.tasks :
       Array.isArray(data?.body)  ? data.body  : [];
 
+    // — показываем только конкретные офферы (Winline #22, BetBoom #81)
+    const whitelist = [22, 81];
+    const tasksFiltered = (tasks || []).filter(
+      (t) => whitelist.includes(Number(t?.id ?? t?.task_id))
+    );
+
     console.log("[GB] getTasks ok:", {
       telegram_id,
       user_device,
       count: tasks.length
     });
 
-    res.json({ ok: true, tasks, raw: data });
+    res.json({ ok: true, tasks: tasksFiltered, raw: data });
   } catch (e) {
     console.error("GET /gb/tasks Error:", e);
     res.status(502).json({ ok:false, error:String(e) });
