@@ -277,7 +277,7 @@ app.use(cors({
     "https://onex-gifts.vercel.app"                     // ← для локальной разработки
   ],
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "x-telegram-id"],
+  allowedHeaders: ["Content-Type", "x-telegram-id", "x-telegram-platform"],
   optionsSuccessStatus: 204
 }));
 
