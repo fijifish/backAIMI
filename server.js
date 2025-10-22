@@ -1200,21 +1200,29 @@ app.get("/gb/tasks", async (req, res) => {
 
 // --- 2) Создать клик (получить уникальную ссылку) ---
 // --- 2) Создать клик (получить уникальную ссылку) ---
+// --- 2) Создать клик (получить уникальную ссылку) ---
 app.post("/gb/click", async (req, res) => {
   try {
-    const { telegramId, taskId } = req.body || {};
+    let { telegramId, taskId } = req.body || {};
     if (!telegramId || !taskId) {
       return res.status(400).json({ ok:false, error:"telegramId & taskId required" });
     }
 
-    // Берём те же атрибуты среды, что и в getTasks
+    // строгий числовой telegram_id (их валидатор иногда ругается на строки)
+    telegramId = String(telegramId).trim();
+    if (!/^\d+$/.test(telegramId)) {
+      return res.status(400).json({ ok:false, error:"telegramId must be digits" });
+    }
+
+    // те же атрибуты среды, что и в getTasks
     const user_ip =
       (req.headers["x-real-ip"]) ||
       (req.headers["cf-connecting-ip"]) ||
       (req.headers["x-forwarded-for"]?.split(",")[0]?.trim()) ||
       req.ip || req.socket?.remoteAddress || "";
 
-    const rawPlatform = String(req.headers["x-telegram-platform"] || req.query.platform || "").toLowerCase().trim();
+    const rawPlatform = String(req.headers["x-telegram-platform"] || req.query.platform || "")
+      .toLowerCase().trim();
     const ua = req.headers["user-agent"] || "";
     const user_device = ((p, uaStr) => {
       if (p === "ios") return "ios";
@@ -1225,62 +1233,74 @@ app.post("/gb/click", async (req, res) => {
       return "web";
     })(rawPlatform, ua);
 
-    // 1) сначала пробуем form-url-encoded (многие API так требуют)
-    const bodyForm = new URLSearchParams({
-      telegram_id: String(telegramId),
-      task_id: String(taskId),
-      user_ip,
-      user_device,
-    });
-
     const base = process.env.GETBONUS_API || "";
     const key  = process.env.GETBONUS_API_KEY || "";
     const url  = `${base}/createClick?api_key=${encodeURIComponent(key)}`;
 
-    // логируем для менеджера
-    console.log("[GetBonus] → POST form", url, bodyForm.toString());
+    // try #1: x-www-form-urlencoded
+    const form = new URLSearchParams({
+      telegram_id: telegramId,           // цифры
+      task_id: String(taskId),
+      user_ip,
+      user_device,
+    });
+    console.log("[GetBonus] → POST form", url, form.toString());
 
     let r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: bodyForm.toString(),
+      body: form.toString(),
     });
 
-    // если не прошло — попробуем JSON как раньше
+    // try #2: JSON
     if (!r.ok) {
-      const raw = await r.text().catch(() => "");
-      console.warn("[GetBonus] createClick form failed:", r.status, raw);
+      const dbg = await r.text().catch(() => "");
+      console.warn("[GetBonus] createClick form failed:", r.status, dbg);
 
-      const r2 = await fetch(url, {
+      r = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "api_key": key
-        },
+        headers: { "Content-Type": "application/json", "api_key": key },
         body: JSON.stringify({
-          telegram_id: String(telegramId),
-          task_id: String(taskId),
+          telegram_id: Number(telegramId), // числом
+          task_id: Number(taskId),
           user_ip,
           user_device,
         }),
       });
-      r = r2;
     }
 
-    const raw2 = await r.text().catch(() => "");
+    // try #3: чисто querystring (без тела)
+    if (!r.ok) {
+      const dbg2 = await r.text().catch(() => "");
+      console.warn("[GetBonus] createClick json failed:", r.status, dbg2);
+
+      const qs = new URLSearchParams({
+        api_key: key,
+        telegram_id: telegramId,
+        task_id: String(taskId),
+        user_ip,
+        user_device,
+      }).toString();
+      const qurl = `${base}/createClick?${qs}`;
+      console.log("[GetBonus] → POST qs-no-body", qurl);
+
+      r = await fetch(qurl, { method: "POST" });
+    }
+
+    const raw = await r.text().catch(() => "");
     let data = {};
-    try { data = raw2 ? JSON.parse(raw2) : {}; } catch { data = { message: raw2 }; }
+    try { data = raw ? JSON.parse(raw) : {}; } catch { data = { message: raw }; }
 
     if (!r.ok) {
       console.error("[GetBonus] HTTP", r.status, "←", data);
       throw new Error(data?.error || `GB ${r.status}`);
     }
 
-    const urlFromGb = data?.link;
-    if (!urlFromGb) throw new Error("No link from GetBonus");
-    return res.json({ ok:true, url: urlFromGb });
+    const link = data?.link;
+    if (!link) throw new Error("No link from GetBonus");
+    return res.json({ ok:true, url: link });
   } catch (e) {
-    console.error("POST /gb/click", e);
+    console.error("POST /gb/click Error:", e);
     res.status(502).json({ ok:false, error: e.message });
   }
 });
