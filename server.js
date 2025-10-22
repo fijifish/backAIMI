@@ -1199,22 +1199,89 @@ app.get("/gb/tasks", async (req, res) => {
 });
 
 // --- 2) Создать клик (получить уникальную ссылку) ---
+// --- 2) Создать клик (получить уникальную ссылку) ---
 app.post("/gb/click", async (req, res) => {
   try {
     const { telegramId, taskId } = req.body || {};
-    if (!telegramId || !taskId) return res.status(400).json({ ok:false, error:"telegramId & taskId required" });
+    if (!telegramId || !taskId) {
+      return res.status(400).json({ ok:false, error:"telegramId & taskId required" });
+    }
 
-    const data = await gbFetch("/createClick", {
-      method:"POST",
-      body:{ telegram_id:String(telegramId), task_id:String(taskId) }
+    // Берём те же атрибуты среды, что и в getTasks
+    const user_ip =
+      (req.headers["x-real-ip"]) ||
+      (req.headers["cf-connecting-ip"]) ||
+      (req.headers["x-forwarded-for"]?.split(",")[0]?.trim()) ||
+      req.ip || req.socket?.remoteAddress || "";
+
+    const rawPlatform = String(req.headers["x-telegram-platform"] || req.query.platform || "").toLowerCase().trim();
+    const ua = req.headers["user-agent"] || "";
+    const user_device = ((p, uaStr) => {
+      if (p === "ios") return "ios";
+      if (p === "android") return "android";
+      const s = (uaStr || "").toLowerCase();
+      if (s.includes("android")) return "android";
+      if (s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
+      return "web";
+    })(rawPlatform, ua);
+
+    // 1) сначала пробуем form-url-encoded (многие API так требуют)
+    const bodyForm = new URLSearchParams({
+      telegram_id: String(telegramId),
+      task_id: String(taskId),
+      user_ip,
+      user_device,
     });
 
-    const url = data?.link;
-    if (!url) throw new Error("No link from GetBonus");
-    res.json({ ok:true, url });
+    const base = process.env.GETBONUS_API || "";
+    const key  = process.env.GETBONUS_API_KEY || "";
+    const url  = `${base}/createClick?api_key=${encodeURIComponent(key)}`;
+
+    // логируем для менеджера
+    console.log("[GetBonus] → POST form", url, bodyForm.toString());
+
+    let r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: bodyForm.toString(),
+    });
+
+    // если не прошло — попробуем JSON как раньше
+    if (!r.ok) {
+      const raw = await r.text().catch(() => "");
+      console.warn("[GetBonus] createClick form failed:", r.status, raw);
+
+      const r2 = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "api_key": key
+        },
+        body: JSON.stringify({
+          telegram_id: String(telegramId),
+          task_id: String(taskId),
+          user_ip,
+          user_device,
+        }),
+      });
+      r = r2;
+    }
+
+    const raw2 = await r.text().catch(() => "");
+    let data = {};
+    try { data = raw2 ? JSON.parse(raw2) : {}; } catch { data = { message: raw2 }; }
+
+    if (!r.ok) {
+      console.error("[GetBonus] HTTP", r.status, "←", data);
+      throw new Error(data?.error || `GB ${r.status}`);
+    }
+
+    const urlFromGb = data?.link;
+    if (!urlFromGb) throw new Error("No link from GetBonus");
+    return res.json({ ok:true, url: urlFromGb });
   } catch (e) {
     console.error("POST /gb/click", e);
-    res.status(502).json({ ok:false, error:e.message });
+    res.status(502).json({ ok:false, error: e.message });
   }
 });
 
