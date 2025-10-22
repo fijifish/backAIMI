@@ -1150,12 +1150,12 @@ app.get("/balances", async (req, res) => {
 });
 
 // --- 1) Доступные офферы для юзера ---
+// --- 1) Доступные офферы для юзера ---
 app.get("/gb/tasks", async (req, res) => {
   try {
     const telegram_id = String(req.query.telegramId || "");
     if (!telegram_id) return res.status(400).json({ ok:false, error:"telegramId required" });
 
-    // --- IP: пробуем взять из разных заголовков CDN/прокси, затем fallback на req.ip ---
     const user_ip =
       (req.headers["x-real-ip"]) ||
       (req.headers["cf-connecting-ip"]) ||
@@ -1164,43 +1164,36 @@ app.get("/gb/tasks", async (req, res) => {
       req.socket?.remoteAddress ||
       "";
 
-    // --- Платформа из Telegram/WebApp (фронт передаёт ?platform=...) + нормализация ---
-    const rawPlatform = String(
-      req.query.platform ||
-      req.headers["x-telegram-platform"] ||   // если вдруг пробрасываешь с фронта
-      ""
-    ).toLowerCase().trim();
-
+    const rawPlatform = String(req.query.platform || req.headers["x-telegram-platform"] || "")
+      .toLowerCase().trim();
     const ua = req.headers["user-agent"] || "";
-
-    function normalizeDevice(p, uaStr) {
+    const user_device = (p => {
       if (p === "ios") return "ios";
       if (p === "android") return "android";
-      if (p === "macos" || p === "mac" || p === "windows" || p === "linux" || p === "tdesktop" || p === "webk") {
-        return "web";
-      }
-      // По user-agent, если platform не пришла или непонятна
-      const s = (uaStr || "").toLowerCase();
+      const s = ua.toLowerCase();
       if (s.includes("android")) return "android";
       if (s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
       return "web";
-    }
+    })(rawPlatform);
 
-    const user_device = normalizeDevice(rawPlatform, ua);
-
-    const q = new URLSearchParams({
-      telegram_id,
-      user_ip,
-      user_device,
-    }).toString();
+    const q = new URLSearchParams({ telegram_id, user_ip, user_device }).toString();
 
     const data = await gbFetch(`/getTasks?${q}`);
-    console.log("[GB] getTasks ok:", { telegram_id, user_device, count: (data?.tasks||[]).length });
-    // ↓ временно отдаём raw
-    res.json({ ok:true, tasks: data?.tasks || [], raw: data });
+
+    // 🟢 ВАЖНО: у GB список приходит в data.body (а не data.tasks)
+    const tasks =
+      Array.isArray(data?.tasks) ? data.tasks :
+      Array.isArray(data?.body)  ? data.body  : [];
+
+    console.log("[GB] getTasks ok:", {
+      telegram_id,
+      user_device,
+      count: tasks.length
+    });
+
+    res.json({ ok: true, tasks, raw: data });
   } catch (e) {
     console.error("GET /gb/tasks Error:", e);
-    // ↓ временно отдаём текст ошибки наружу, чтобы было видно в Network
     res.status(502).json({ ok:false, error:String(e) });
   }
 });
