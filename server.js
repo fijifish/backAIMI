@@ -1172,14 +1172,14 @@ app.get("/gb/tasks", async (req, res) => {
     const rawPlatform = String(req.query.platform || req.headers["x-telegram-platform"] || "")
       .toLowerCase().trim();
     const ua = req.headers["user-agent"] || "";
-    const user_device = (p => {
-      if (p === "ios") return "ios";
-      if (p === "android") return "android";
-      const s = ua.toLowerCase();
-      if (s.includes("android")) return "android";
-      if (s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
-      return "web";
-    })(rawPlatform);
+    const user_device = (() => {
+      const p = String(rawPlatform).toLowerCase();
+      const s = (ua || "").toLowerCase();
+      if (p.includes("ios") || s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
+      if (p.includes("android") || s.includes("android")) return "android";
+      // ⚙️ fallback — GetBonus не принимает web/macos, так что дефолт: android
+      return "android";
+    })();
 
     const q = new URLSearchParams({ telegram_id, user_ip, user_device }).toString();
 
@@ -1235,14 +1235,14 @@ app.get("/gb/click", async (req, res) => {
     const rawPlatform = String(req.query.platform || req.headers["x-telegram-platform"] || "")
       .toLowerCase().trim();
     const ua = req.headers["user-agent"] || "";
-    const user_device = ((p, uaStr) => {
-      if (p === "ios") return "ios";
-      if (p === "android") return "android";
-      const s = (uaStr || "").toLowerCase();
-      if (s.includes("android")) return "android";
-      if (s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
-      return "web";
-    })(rawPlatform, ua);
+    const user_device = (() => {
+      const p = String(rawPlatform).toLowerCase();
+      const s = (ua || "").toLowerCase();
+      if (p.includes("ios") || s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
+      if (p.includes("android") || s.includes("android")) return "android";
+      // ⚙️ fallback — GetBonus не принимает web/macos, так что дефолт: android
+      return "android";
+    })();
 
     const base = process.env.GETBONUS_API || "";
     const key  = process.env.GETBONUS_API_KEY || "";
