@@ -1,4 +1,14 @@
+
 import mongoose from "mongoose";
+
+// State for GetBonus tasks
+const GbTaskStateSchema = new mongoose.Schema({
+  done:      { type: Boolean, default: false }, // засчитано и выдана награда
+  at:        { type: Date,    default: null },  // когда засчитали
+  rewardUsd: { type: Number,  default: 0 },     // сколько начислили
+  clicks:    { type: Number,  default: 0 },     // сколько раз создавали клик
+}, { _id: false });
+
 
 const userSchema = new mongoose.Schema(
   {
@@ -17,8 +27,15 @@ const userSchema = new mongoose.Schema(
 
     tasks: {
       channelSubscribed: { type: Boolean, default: false },
-      mostbetCompleted:   { type: Boolean, default: false },
-      mostbetRewardedAt:  { type: Date,    default: null }
+      mostbetCompleted:  { type: Boolean, default: false },
+      mostbetRewardedAt: { type: Date,    default: null },
+
+      // Карта состояний задач GetBonus: ключ = taskId (строка/число), значение = GbTaskStateSchema
+      gb: {
+        type: Map,
+        of: GbTaskStateSchema,
+        default: undefined
+      }
     },
 
     lastSeenAt: { type: Date, default: null },
