@@ -296,8 +296,8 @@ async function notifyWithdrawRequest(user, order) {
   const keyboard = {
     inline_keyboard: [
       [
-        { text: "Выполнить", callback_data: `w_ok:${telegramId}:${orderIdHex}` },
-        { text: "Отклонить", callback_data: `w_no:${telegramId}:${orderIdHex}` }
+        { text: "✅ Выполнить", callback_data: `w_ok:${telegramId}:${orderIdHex}` },
+        { text: "❌ Отклонить", callback_data: `w_no:${telegramId}:${orderIdHex}` }
       ]
     ]
   };
