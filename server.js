@@ -264,6 +264,59 @@ async function notifyJettonDeposit(user, { amountUsd, txId, isFirst } = {}) {
   await sendTG(text);
 }
 
+// ===== Withdraw notification helpers =====
+function formatWithdrawText(user, order) {
+  const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
+  const name = user?.firstName ? ` (${user.firstName})` : "";
+  const when = order?.createdAt ? new Date(order.createdAt).toLocaleString("ru-RU") : new Date().toLocaleString("ru-RU");
+  const status = order?.status || "в обработке";
+  const addr = order?.address || "";
+  const amt = Number.isFinite(Number(order?.amount)) ? Number(order.amount).toFixed(2) : "n/a";
+  return (
+    `<b>Заявка на вывод</b>\n\n` +
+    `• ${u}${name}\n\n` +
+    `💵 Сумма: <b>${amt} USDT</b>\n` +
+    `🏦 Адрес: <code>${addr}</code>\n` +
+    `⏳ Статус: <b>${status}</b>\n\n` +
+    `🕒 ${when}`
+  );
+}
+
+async function notifyWithdrawRequest(user, order) {
+  const text = formatWithdrawText(user, order);
+  const telegramId = user?.telegramId;
+  const orderIdHex = order?._id?.toString?.() || (order?._id || "");
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: "Выполнить", callback_data: `w_ok:${telegramId}:${orderIdHex}` },
+        { text: "Отклонить", callback_data: `w_no:${telegramId}:${orderIdHex}` }
+      ]
+    ]
+  };
+  // Prefer bot if available
+  if (bot && typeof bot.telegram?.sendMessage === "function") {
+    for (const chat_id of NOTIFY_CHAT_ID) {
+      try {
+        await bot.telegram.sendMessage(
+          chat_id,
+          text,
+          {
+            parse_mode: "HTML",
+            disable_web_page_preview: true,
+            reply_markup: keyboard
+          }
+        );
+      } catch (e) {
+        console.error("bot.telegram.sendMessage error:", e);
+      }
+    }
+  } else {
+    // fallback: sendTG (no inline keyboard)
+    await sendTG(text, { });
+  }
+}
+
 const app = express();
 app.set("trust proxy", true);
 // 🔎 lightweight request logger (method + path)
@@ -482,6 +535,13 @@ app.post("/withdraw/create", async (req, res) => {
       { telegramId: String(telegramId) },
       { $push: { withdrawOrders: { $each: [order], $position: 0 } } }
     );
+
+    // Notify admins about new withdraw request
+    try {
+      await notifyWithdrawRequest(user, order);
+    } catch (e) {
+      console.error("notifyWithdrawRequest error:", e);
+    }
 
     return res.json({ ok: true, order });
   } catch (e) {
@@ -1087,7 +1147,6 @@ if (TG_BOT_TOKEN) {
       openLink = `${WEBAPP_URL}${params.toString() ? "?" + params.toString() : ""}`;
     }
 
-
       const caption = [
         "Добро пожаловать в Aimi Traffic!",
         "",
@@ -1115,6 +1174,140 @@ if (TG_BOT_TOKEN) {
           Markup.inlineKeyboard([[Markup.button.webApp("Открыть приложение", WEBAPP_URL)]])
         );
       } catch {}
+    }
+  });
+
+  // ====== Withdraw actions handlers ======
+  bot.action(/^w_ok:(\d+):([a-f0-9]{24})$/i, async (ctx) => {
+    try {
+      const telegramId = ctx.match[1];
+      const orderIdHex = ctx.match[2];
+      const orderId = orderIdHex;
+      // Найти пользователя с этим заказом
+      const user = await User.findOne({ telegramId: String(telegramId) });
+      if (!user) {
+        return ctx.answerCbQuery("Пользователь не найден", { show_alert: true });
+      }
+      const order = (user.withdrawOrders || []).find(o => o._id && o._id.toString() === orderId);
+      if (!order) {
+        return ctx.answerCbQuery("Заявка не найдена", { show_alert: true });
+      }
+      if (order.status !== "в обработке") {
+        return ctx.answerCbQuery("Заявка уже обработана", { show_alert: true });
+      }
+      const amount = Number(order.amount || 0);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return ctx.answerCbQuery("Некорректная сумма", { show_alert: true });
+      }
+      if (Number(user?.balances?.usdAvailable ?? 0) < amount) {
+        return ctx.answerCbQuery("Недостаточно средств на доступном балансе", { show_alert: true });
+      }
+      // Атомарное обновление
+      const upd = await User.updateOne(
+        {
+          telegramId: String(telegramId),
+          "withdrawOrders._id": orderId,
+          "withdrawOrders.status": "в обработке",
+          "balances.usdAvailable": { $gte: amount }
+        },
+        {
+          $inc: { "balances.usdAvailable": -amount },
+          $set: {
+            "withdrawOrders.$.status": "в выполнен",
+            "withdrawOrders.$.processedAt": new Date()
+          }
+        }
+      );
+      if (!upd.modifiedCount) {
+        // Уже обработано кем-то другим
+        return ctx.answerCbQuery("Заявка уже обработана", { show_alert: true });
+      }
+      // перечитать пользователя и заказ
+      const fresh = await User.findOne({ telegramId: String(telegramId) });
+      const freshOrder = (fresh?.withdrawOrders || []).find(o => o._id && o._id.toString() === orderId);
+      // обновить сообщение
+      const msg = ctx.update.callback_query.message;
+      if (msg) {
+        const newText = formatWithdrawText(fresh, freshOrder);
+        try {
+          await ctx.telegram.editMessageText(
+            msg.chat.id,
+            msg.message_id,
+            undefined,
+            newText,
+            {
+              parse_mode: "HTML",
+              disable_web_page_preview: true,
+              reply_markup: { inline_keyboard: [] }
+            }
+          );
+        } catch (e) {
+          // ignore edit error (message might be already edited)
+        }
+      }
+      return ctx.answerCbQuery("Готово: выполнен");
+    } catch (e) {
+      console.error("w_ok error:", e);
+      return ctx.answerCbQuery("Ошибка обработки", { show_alert: true });
+    }
+  });
+
+  bot.action(/^w_no:(\d+):([a-f0-9]{24})$/i, async (ctx) => {
+    try {
+      const telegramId = ctx.match[1];
+      const orderIdHex = ctx.match[2];
+      const orderId = orderIdHex;
+      const user = await User.findOne({ telegramId: String(telegramId) });
+      if (!user) {
+        return ctx.answerCbQuery("Пользователь не найден", { show_alert: true });
+      }
+      const order = (user.withdrawOrders || []).find(o => o._id && o._id.toString() === orderId);
+      if (!order) {
+        return ctx.answerCbQuery("Заявка не найдена", { show_alert: true });
+      }
+      if (order.status !== "в обработке") {
+        return ctx.answerCbQuery("Заявка уже обработана", { show_alert: true });
+      }
+      // Отклонить заявку (баланс не меняем)
+      const upd = await User.updateOne(
+        {
+          telegramId: String(telegramId),
+          "withdrawOrders._id": orderId,
+          "withdrawOrders.status": "в обработке"
+        },
+        {
+          $set: {
+            "withdrawOrders.$.status": "отклонён",
+            "withdrawOrders.$.processedAt": new Date()
+          }
+        }
+      );
+      if (!upd.modifiedCount) {
+        return ctx.answerCbQuery("Заявка уже обработана", { show_alert: true });
+      }
+      const fresh = await User.findOne({ telegramId: String(telegramId) });
+      const freshOrder = (fresh?.withdrawOrders || []).find(o => o._id && o._id.toString() === orderId);
+      const msg = ctx.update.callback_query.message;
+      if (msg) {
+        const newText = formatWithdrawText(fresh, freshOrder);
+        try {
+          await ctx.telegram.editMessageText(
+            msg.chat.id,
+            msg.message_id,
+            undefined,
+            newText,
+            {
+              parse_mode: "HTML",
+              disable_web_page_preview: true,
+              reply_markup: { inline_keyboard: [] }
+            }
+          );
+        } catch (e) {}
+      }
+      return ctx.answerCbQuery("Отменено");
+    } catch (e) {
+      console.error("w_no error:", e);
+      return ctx.answerCbQuery("Ошибка обработки", { show_alert: true });
     }
   });
 } else {
