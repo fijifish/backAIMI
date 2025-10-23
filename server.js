@@ -516,10 +516,8 @@ app.post("/withdraw/create", async (req, res) => {
       return res.status(400).json({ ok:false, error: "Invalid amount" });
     }
 
-    // ✅ Больше НЕ требуем TRC20. Принимаем любой непустой адрес.
-    // Немного санитизируем и ограничим длину, чтобы не хранить мусорные мегастроки.
     let addr = String(address ?? "")
-      .replace(/[\u200B-\u200D\uFEFF]/g, "") // zero‑width
+      .replace(/[\u200B-\u200D\uFEFF]/g, "")
       .trim();
     addr = addr.slice(0, 255);
     if (!addr) {
@@ -529,12 +527,22 @@ app.post("/withdraw/create", async (req, res) => {
     const user = await User.findOne({ telegramId: String(telegramId) });
     if (!user) return res.status(404).json({ ok:false, error: "User not found" });
 
+    // ✅ Проверяем доступный баланс
+    const available = Number(user?.balances?.usdAvailable || 0);
+    if (amt > available) {
+      return res.status(400).json({
+        ok: false,
+        error: "Недостаточно средств для вывода. Уменьшите сумму заявки или пополните баланс.",
+      });
+    }
+
+    // Если баланс хватает — создаём заявку
     const order = {
       _id: new mongoose.Types.ObjectId(),
-      amount: amt,                 // сумма в USDT
+      amount: amt,
       currency: "USDT",
-      address: addr,               // теперь может быть любой строкой
-      status: "в обработке",       // начальный статус
+      address: addr,
+      status: "в обработке",
       createdAt: new Date(),
     };
 
@@ -543,7 +551,6 @@ app.post("/withdraw/create", async (req, res) => {
       { $push: { withdrawOrders: { $each: [order], $position: 0 } } }
     );
 
-    // Notify admins about new withdraw request
     try {
       await notifyWithdrawRequest(user, order);
     } catch (e) {
