@@ -280,7 +280,7 @@ function formatWithdrawText(user, order) {
   const addr = order?.address || "";
   const amt = Number.isFinite(Number(order?.amount)) ? Number(order.amount).toFixed(2) : "n/a";
   return (
-    `<b>Заявка на вывод</b>\n\n` +
+    `<b>📝 Заявка на вывод</b>\n\n` +
     `• ${u}${name}${inviterLine}\n\n` +
     `💵 Сумма: <b>${amt} USDT</b>\n` +
     `🏦 Адрес: <code>${addr}</code>\n` +
