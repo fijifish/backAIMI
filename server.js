@@ -1213,7 +1213,7 @@ if (TG_BOT_TOKEN) {
         {
           $inc: { "balances.usdAvailable": -amount },
           $set: {
-            "withdrawOrders.$.status": "в выполнен",
+            "withdrawOrders.$.status": "выполнен",
             "withdrawOrders.$.processedAt": new Date()
           }
         }
