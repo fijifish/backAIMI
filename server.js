@@ -268,13 +268,20 @@ async function notifyJettonDeposit(user, { amountUsd, txId, isFirst } = {}) {
 function formatWithdrawText(user, order) {
   const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
   const name = user?.firstName ? ` (${user.firstName})` : "";
+  const inviter =
+  user?.referral?.referredBy
+    ? (user.referral.referredBy.startsWith("@")
+        ? user.referral.referredBy
+        : `@${user.referral.referredBy}`)
+    : null;
+  const inviterLine = inviter ? `\n👥 Инвайтер: ${inviter}` : "";
   const when = order?.createdAt ? new Date(order.createdAt).toLocaleString("ru-RU") : new Date().toLocaleString("ru-RU");
   const status = order?.status || "в обработке";
   const addr = order?.address || "";
   const amt = Number.isFinite(Number(order?.amount)) ? Number(order.amount).toFixed(2) : "n/a";
   return (
     `<b>Заявка на вывод</b>\n\n` +
-    `• ${u}${name}\n\n` +
+    `• ${u}${name}${inviterLine}\n\n` +
     `💵 Сумма: <b>${amt} USDT</b>\n` +
     `🏦 Адрес: <code>${addr}</code>\n` +
     `⏳ Статус: <b>${status}</b>\n\n` +
