@@ -1491,18 +1491,59 @@ app.get("/gb/click", async (req, res) => {
 });
 
 // --- 3) Проверка выполнения оффера ---
+// ✅ Проверка выполнения оффера GetBonus и запись в БД
 app.get("/gb/check", async (req, res) => {
   try {
-    const { telegramId, taskId } = req.query || {};
-    if (!telegramId || !taskId) return res.status(400).json({ ok:false, error:"telegramId & taskId required" });
+    const telegramId = String(req.query.telegramId || "");
+    const taskId     = String(req.query.taskId || "");
+    if (!telegramId || !taskId) {
+      return res.status(400).json({ ok:false, error:"telegramId & taskId required" });
+    }
 
-    const qs = new URLSearchParams({ telegram_id:String(telegramId), task_id:String(taskId) }).toString();
-    const data = await gbFetch(`/checkUserTask?${qs}`); // GET
+    // прокидываем те же атрибуты среды (платформа/девайс), что и в /gb/tasks
+    const rawPlatform = String(req.query.platform || req.headers["x-telegram-platform"] || "").toLowerCase().trim();
+    const ua = req.headers["user-agent"] || "";
+    const user_device = (() => {
+      const p = rawPlatform; const s = ua.toLowerCase();
+      if (p.includes("ios") || p.includes("macos") || s.includes("iphone") || s.includes("ipad") || s.includes("ipod")) return "ios";
+      if (p.includes("android") || s.includes("android")) return "android";
+      return "ios";
+    })();
 
-    res.json({ ok:true, raw:data, status: data?.status ?? data?.done ?? data?.result ?? null });
+    // Запрос к GetBonus: checkUserTask
+    const qs = new URLSearchParams({
+      telegram_id: telegramId,
+      task_id: taskId,
+      user_device
+    }).toString();
+    const resp = await gbFetch(`/checkUserTask?${qs}`); // их ответ вида { body:{ done_status: 0|1|2 }, statusCode:200 }
+    const doneStatus = Number(resp?.body?.done_status ?? -1);
+
+    // Если партнёр засчитал (2) — пишем в БД флаг и начисляем деньги идемпотентно
+    if (doneStatus === 2) {
+      const flag = `tasks.gb_${taskId}`;
+
+      const upd = await User.updateOne(
+        { telegramId, [flag]: { $ne: true } },       // только если ещё не отмечали
+        {
+          $set: { [flag]: true, [`tasks.gb_${taskId}_at`]: new Date() },
+          $inc: { "balances.usdAvailable": 5, "balances.usdLocked": 10 } // пример: 15$ = 5 доступно + 10 в лок
+        }
+      );
+
+      // вернём явный статус
+      return res.json({
+        ok: true,
+        status: upd.modifiedCount ? "rewarded" : "already_completed",
+        done_status: 2
+      });
+    }
+
+    // иначе — просто сообщаем, что пока не засчитано
+    return res.json({ ok:true, status:"pending", done_status: doneStatus });
   } catch (e) {
-    console.error("GET /gb/check", e);
-    res.status(502).json({ ok:false, error:e.message });
+    console.error("GET /gb/check error:", e);
+    res.status(502).json({ ok:false, error:String(e.message || e) });
   }
 });
 
