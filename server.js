@@ -31,6 +31,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// ✅ Parse JSON body BEFORE any routes
+app.use(express.json({ limit: "1mb" }));
+
 // ===== Telegram notifier helpers =====
 const NOTIFY_BOT_TOKEN = process.env.NOTIFY_BOT_TOKEN || "";
 const NOTIFY_CHAT_ID = String(process.env.NOTIFY_CHAT_ID || "")
@@ -75,6 +78,8 @@ const ONEX_TASK_REWARD_USD = Number(process.env.ONEX_TASK_REWARD_USD || 10);
 const ONEX_TASK_UNLOCK_USD = Number(process.env.ONEX_TASK_UNLOCK_USD || 5);
 
 app.post("/tasks/onex/verify", async (req, res) => {
+  // (Optional, but helpful for debugging right now): log received body
+  console.log("[/tasks/onex/verify] body:", req.body);
   try {
     const { telegramId, ownerId, ownerRef } = req.body || {};
     if (!telegramId) return res.status(400).json({ ok:false, error: "telegramId is required" });
@@ -433,8 +438,7 @@ app.use(cors({
 // ✅ Чтобы preflight-запросы OPTIONS не ломали бэкенд
 app.options("*", cors());
 
-// ✅ Парсим JSON в body
-app.use(express.json({ limit: "1mb" }));
+// (removed duplicate express.json middleware)
 
 // ✅ Подключение к MongoDB
 mongoose.connect(process.env.MONGODB_URI)
