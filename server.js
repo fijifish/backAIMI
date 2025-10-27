@@ -62,7 +62,7 @@ async function sendTG(text, extra = {}) {
 
 // ===== Mini App bot config =====
 // === ONEX core (1x.back) integration ===
-const ONEX_CORE_URL = process.env.ONEX_CORE_URL || "https://your-1x-back-host"; // e.g. https://octys-1x-back.up.railway.app
+const ONEX_CORE_URL = process.env.ONEX_CORE_URL || "https://1xback-production-25cd.up.railway.app";
 async function oneXFetch(path) {
   const url = `${ONEX_CORE_URL}${path}`;
   const r = await fetch(url).catch(err => ({ ok:false, status: 500, json: async()=>({ error: String(err) }) }));
@@ -81,26 +81,29 @@ const ONEX_REFERRAL_MIN_STAKE = Number(process.env.ONEX_REFERRAL_MIN_STAKE || 7)
 app.post("/tasks/onex/verify", async (req, res) => {
   console.log("[/tasks/onex/verify] body:", req.body);
   try {
-    const { telegramId, ownerId, ownerRef } = req.body || {};
+    const { telegramId, ownerId: ownerIdRaw, ownerRef } = req.body || {};
     if (!telegramId) return res.status(400).json({ ok:false, error: "telegramId is required" });
-    if (!ownerId && !ownerRef) return res.status(400).json({ ok:false, error: "ownerId or ownerRef is required" });
+
+    // фолбэк из .env, если с фронта не пришло
+    const ownerId = String(ownerIdRaw || process.env.ONEX_OWNER_ID || "").trim();
+    if (!ownerId && !ownerRef) {
+      return res.status(400).json({ ok:false, error: "ownerId or ownerRef is required (none provided and no ONEX_OWNER_ID in env)" });
+    }
 
     const user = await User.findOne({ telegramId: String(telegramId) });
     if (!user) return res.status(404).json({ ok:false, error: "User not found" });
 
-    // уже выполнено — идемпотентно возвращаем
     if (user?.tasks?.onexReferralDone) {
       return res.json({ ok:true, status: "already_completed", user });
     }
 
-    // 1) Список рефералов «владельца» из 1x.back
-    // В 1x.back сейчас есть GET /get-referrals?userId=<OWNER_ID>
+    // 1) список рефералов владельца
     let ownerReferralsResp;
     if (ownerId) {
-      ownerReferralsResp = await oneXFetch(`/get-referrals?userId=${encodeURIComponent(String(ownerId))}`);
+      ownerReferralsResp = await oneXFetch(`/get-referrals?userId=${encodeURIComponent(ownerId)}`);
     } else {
-      // Если понадобиться работа по ownerRef — добавь соответствующий эндпоинт в 1x.back и здесь используй его.
-      return res.status(400).json({ ok:false, error:"ownerRef variant not supported by 1x.back. Provide ownerId" });
+      // если когда-нибудь появится поддержка ownerRef на 1x.back — здесь вызвать нужный эндпоинт
+      return res.status(400).json({ ok:false, error:"ownerRef variant not supported by 1x.back. Provide ownerId/ONEX_OWNER_ID" });
     }
 
     const list = Array.isArray(ownerReferralsResp?.referrals) ? ownerReferralsResp.referrals : [];
@@ -196,9 +199,11 @@ app.post("/tasks/onex/verify", async (req, res) => {
     return res.json({ ok:true, status:"rewarded", rewardUsd: ONEX_TASK_REWARD_USD, user: fresh });
   } catch (e) {
     console.error("/tasks/onex/verify error:", e);
-    return res.status(500).json({ ok:false, error:"Server error" });
+    return res.status(500).json({ ok:false, error:String(e?.message || e) });
   }
 });
+  
+
 
 
 const TG_BOT_TOKEN    = process.env.TELEGRAM_BOT_TOKEN || "";
