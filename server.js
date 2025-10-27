@@ -95,10 +95,18 @@ app.post("/tasks/onex/verify", async (req, res) => {
 
     // ask 1x.back for owner's referrals
     const q = ownerId ? `?ownerId=${encodeURIComponent(ownerId)}` : `?ownerRef=${encodeURIComponent(ownerRef)}`;
-    const data = await oneXFetch(`/referrals/list${q}`); // { ok:true, referrals:["123", ...] }
-    const list = Array.isArray(data?.referrals) ? data.referrals.map(String) : [];
+    const data = await oneXFetch(`/referrals/list${q}`);
+    const ids = Array.isArray(data?.referrals) ? data.referrals.map(String) : [];
+    const uns = Array.isArray(data?.usernames) ? data.usernames.map(String) : [];
 
-    const isReferred = list.includes(String(telegramId));
+    let isReferred = ids.includes(String(telegramId));
+    if (!isReferred) {
+      const uname = (user?.username ? `@${user.username}` : "").toLowerCase();
+      if (uname) {
+        isReferred = uns.map(s => s.toLowerCase()).includes(uname);
+      }
+    }
+
     if (!isReferred) {
       return res.json({ ok:true, status: "not_found_in_owner_referrals" });
     }
