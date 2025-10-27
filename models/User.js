@@ -29,6 +29,8 @@ const userSchema = new mongoose.Schema(
       channelSubscribed: { type: Boolean, default: false },
       mostbetCompleted:  { type: Boolean, default: false },
       mostbetRewardedAt: { type: Date,    default: null },
+      onexReferralDone:  { type: Boolean, default: false },
+      onexReferralAt:    { type: Date,    default: null },
 
       // Карта состояний задач GetBonus: ключ = taskId (строка/число), значение = GbTaskStateSchema
       gb: {
