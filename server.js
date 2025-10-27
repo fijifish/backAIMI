@@ -119,13 +119,65 @@ app.post("/tasks/onex/verify", async (req, res) => {
     // 2) Проверяем стейк текущего пользователя в 1x.back
     // Ожидаем, что там есть GET /get-user-info?telegramId=<id>, который вернет activePaidNodes / purchasedPaidNodes
     const meCore = await oneXFetch(`/get-user-info?telegramId=${encodeURIComponent(String(telegramId))}`);
-    const active = Array.isArray(meCore?.activePaidNodes) ? meCore.activePaidNodes : [];
-    const purchased = Array.isArray(meCore?.purchasedPaidNodes) ? meCore.purchasedPaidNodes : [];
-    const minStake = Number.isFinite(ONEX_REFERRAL_MIN_STAKE) ? ONEX_REFERRAL_MIN_STAKE : 7;
+    // --- Normalize data shapes coming from 1x.back and extract stake robustly ---
+    const normArr = (x) => Array.isArray(x)
+      ? x
+      : (x && typeof x === "object" ? Object.values(x) : []);
 
-    const hasStake = [...active, ...purchased].some(n => Number(n?.stake || 0) >= minStake);
+    const STAKE_FIELD = process.env.ONEX_STAKE_FIELD && String(process.env.ONEX_STAKE_FIELD);
+
+    const extractStake = (node) => {
+      if (!node || typeof node !== "object") {
+        const num = Number(node);
+        return Number.isFinite(num) ? num : 0;
+      }
+      // If a specific field name is supplied via env, prefer it
+      if (STAKE_FIELD && node[STAKE_FIELD] !== undefined) {
+        const v = Number(node[STAKE_FIELD]);
+        return Number.isFinite(v) ? v : 0;
+      }
+      // Try common field names
+      const candidates = [
+        node.stake, node.stakeTon, node.amount, node.value,
+        node.ton, node.staked, node.size, node.deposit, node.locked,
+      ];
+      const first = candidates.find(v => v !== undefined && v !== null);
+      const num = Number(first);
+      return Number.isFinite(num) ? num : 0;
+    };
+
+    const activeRaw    = normArr(meCore?.activePaidNodes);
+    const purchasedRaw = normArr(meCore?.purchasedPaidNodes);
+
+    const activeStakes    = activeRaw.map(extractStake).filter(n => Number.isFinite(n));
+    const purchasedStakes = purchasedRaw.map(extractStake).filter(n => Number.isFinite(n));
+
+    const minStake = Number.isFinite(ONEX_REFERRAL_MIN_STAKE) ? ONEX_REFERRAL_MIN_STAKE : 7;
+    const allStakes = [...activeStakes, ...purchasedStakes];
+    const hasStake  = allStakes.some(s => s >= minStake);
+
+    // Debug summary (will help if shapes differ)
+    try {
+      console.log("[/tasks/onex/verify] stake-check:", {
+        minStake,
+        activeCount: activeRaw.length,
+        purchasedCount: purchasedRaw.length,
+        activeStakes,
+        purchasedStakes,
+      });
+    } catch {}
+
     if (!hasStake) {
-      return res.json({ ok:true, status:"not_completed_stake_threshold", minStake });
+      return res.json({
+        ok: true,
+        status: "not_completed_stake_threshold",
+        minStake,
+        // compact debug helps frontend understand why it failed (can be removed later)
+        details: {
+          activeStakes,
+          purchasedStakes,
+        }
+      });
     }
 
     // 3) Атомарно отмечаем как выполненное
