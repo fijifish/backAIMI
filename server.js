@@ -33,6 +33,66 @@ async function sendTG(text, extra = {}) {
 }
 
 // ===== Mini App bot config =====
+// === ONEX core (1x.back) integration ===
+const ONEX_CORE_URL = process.env.ONEX_CORE_URL || "https://your-1x-back-host"; // e.g. https://octys-1x-back.up.railway.app
+async function oneXFetch(path) {
+  const url = `${ONEX_CORE_URL}${path}`;
+  const r = await fetch(url).catch(err => ({ ok:false, status: 500, json: async()=>({ error: String(err) }) }));
+  if (!r.ok) {
+    const data = await r.json().catch(()=>({}));
+    throw new Error(`oneX ${r.status} ${JSON.stringify(data)}`);
+  }
+  return r.json();
+}
+// === Verify ONEX referral task: checks if current user is in owner's referral list served by 1x.back
+// POST /tasks/onex/verify { telegramId: string, ownerId?: string, ownerRef?: string }
+const ONEX_TASK_REWARD_USD = Number(process.env.ONEX_TASK_REWARD_USD || 10);
+const ONEX_TASK_UNLOCK_USD = Number(process.env.ONEX_TASK_UNLOCK_USD || 5);
+
+app.post("/tasks/onex/verify", async (req, res) => {
+  try {
+    const { telegramId, ownerId, ownerRef } = req.body || {};
+    if (!telegramId) return res.status(400).json({ ok:false, error: "telegramId is required" });
+    if (!ownerId && !ownerRef) return res.status(400).json({ ok:false, error: "ownerId or ownerRef is required" });
+
+    const user = await User.findOne({ telegramId: String(telegramId) });
+    if (!user) return res.status(404).json({ ok:false, error: "User not found" });
+
+    // idempotency: if already completed — return early
+    if (user?.tasks?.onexReferralDone) {
+      return res.json({ ok:true, status: "already_completed", user });
+    }
+
+    // ask 1x.back for owner's referrals
+    const q = ownerId ? `?ownerId=${encodeURIComponent(ownerId)}` : `?ownerRef=${encodeURIComponent(ownerRef)}`;
+    const data = await oneXFetch(`/referrals/list${q}`); // { ok:true, referrals:["123", ...] }
+    const list = Array.isArray(data?.referrals) ? data.referrals.map(String) : [];
+
+    const isReferred = list.includes(String(telegramId));
+    if (!isReferred) {
+      return res.json({ ok:true, status: "not_found_in_owner_referrals" });
+    }
+
+    // Atomically mark as done (no money yet) — prevent double-claim
+    const upd = await User.updateOne(
+      { telegramId: String(telegramId), "tasks.onexReferralDone": { $ne: true } },
+      { $set: { "tasks.onexReferralDone": true, "tasks.onexReferralAt": new Date() } }
+    );
+
+    if (upd.modifiedCount === 0) {
+      return res.json({ ok:true, status: "already_completed" });
+    }
+
+    // Credit reward split (available + locked)
+    await creditRewardUSD(String(telegramId), ONEX_TASK_REWARD_USD, ONEX_TASK_UNLOCK_USD);
+
+    const fresh = await User.findOne({ telegramId: String(telegramId) });
+    return res.json({ ok:true, status: "rewarded", rewardUsd: ONEX_TASK_REWARD_USD, user: fresh });
+  } catch (e) {
+    console.error("/tasks/onex/verify error:", e);
+    return res.status(500).json({ ok:false, error: "Server error" });
+  }
+});
 const TG_BOT_TOKEN    = process.env.TELEGRAM_BOT_TOKEN || "";
 const WEBAPP_URL      = process.env.WEBAPP_URL || "https://onex-gifts.vercel.app"; // твой фронт
 const START_BANNER_URL = process.env.START_BANNER_URL || ""; // URL картинки для /start (опционально)
