@@ -76,9 +76,9 @@ async function oneXFetch(path) {
 // POST /tasks/onex/verify { telegramId: string, ownerId?: string, ownerRef?: string }
 const ONEX_TASK_REWARD_USD = Number(process.env.ONEX_TASK_REWARD_USD || 10);
 const ONEX_TASK_UNLOCK_USD = Number(process.env.ONEX_TASK_UNLOCK_USD || 5);
+const ONEX_REFERRAL_MIN_STAKE = Number(process.env.ONEX_REFERRAL_MIN_STAKE || 7);
 
 app.post("/tasks/onex/verify", async (req, res) => {
-  // (Optional, but helpful for debugging right now): log received body
   console.log("[/tasks/onex/verify] body:", req.body);
   try {
     const { telegramId, ownerId, ownerRef } = req.body || {};
@@ -88,49 +88,67 @@ app.post("/tasks/onex/verify", async (req, res) => {
     const user = await User.findOne({ telegramId: String(telegramId) });
     if (!user) return res.status(404).json({ ok:false, error: "User not found" });
 
-    // idempotency: if already completed — return early
+    // уже выполнено — идемпотентно возвращаем
     if (user?.tasks?.onexReferralDone) {
       return res.json({ ok:true, status: "already_completed", user });
     }
 
-    // ask 1x.back for owner's referrals
-    const q = ownerId ? `?ownerId=${encodeURIComponent(ownerId)}` : `?ownerRef=${encodeURIComponent(ownerRef)}`;
-    const data = await oneXFetch(`/referrals/list${q}`);
-    const ids = Array.isArray(data?.referrals) ? data.referrals.map(String) : [];
-    const uns = Array.isArray(data?.usernames) ? data.usernames.map(String) : [];
-
-    let isReferred = ids.includes(String(telegramId));
-    if (!isReferred) {
-      const uname = (user?.username ? `@${user.username}` : "").toLowerCase();
-      if (uname) {
-        isReferred = uns.map(s => s.toLowerCase()).includes(uname);
-      }
+    // 1) Список рефералов «владельца» из 1x.back
+    // В 1x.back сейчас есть GET /get-referrals?userId=<OWNER_ID>
+    let ownerReferralsResp;
+    if (ownerId) {
+      ownerReferralsResp = await oneXFetch(`/get-referrals?userId=${encodeURIComponent(String(ownerId))}`);
+    } else {
+      // Если понадобиться работа по ownerRef — добавь соответствующий эндпоинт в 1x.back и здесь используй его.
+      return res.status(400).json({ ok:false, error:"ownerRef variant not supported by 1x.back. Provide ownerId" });
     }
+
+    const list = Array.isArray(ownerReferralsResp?.referrals) ? ownerReferralsResp.referrals : [];
+    const myUsernameKey = user.username ? `@${user.username}` : null;
+    const myIdKey = `ID:${String(telegramId)}`;
+
+    const isReferred = list.some(ref => {
+      const u = String(ref?.username || "").toLowerCase();
+      return (myUsernameKey && u === myUsernameKey.toLowerCase()) || u === myIdKey.toLowerCase();
+    });
 
     if (!isReferred) {
       return res.json({ ok:true, status: "not_found_in_owner_referrals" });
     }
 
-    // Atomically mark as done (no money yet) — prevent double-claim
+    // 2) Проверяем стейк текущего пользователя в 1x.back
+    // Ожидаем, что там есть GET /get-user-info?telegramId=<id>, который вернет activePaidNodes / purchasedPaidNodes
+    const meCore = await oneXFetch(`/get-user-info?telegramId=${encodeURIComponent(String(telegramId))}`);
+    const active = Array.isArray(meCore?.activePaidNodes) ? meCore.activePaidNodes : [];
+    const purchased = Array.isArray(meCore?.purchasedPaidNodes) ? meCore.purchasedPaidNodes : [];
+    const minStake = Number.isFinite(ONEX_REFERRAL_MIN_STAKE) ? ONEX_REFERRAL_MIN_STAKE : 7;
+
+    const hasStake = [...active, ...purchased].some(n => Number(n?.stake || 0) >= minStake);
+    if (!hasStake) {
+      return res.json({ ok:true, status:"not_completed_stake_threshold", minStake });
+    }
+
+    // 3) Атомарно отмечаем как выполненное
     const upd = await User.updateOne(
       { telegramId: String(telegramId), "tasks.onexReferralDone": { $ne: true } },
       { $set: { "tasks.onexReferralDone": true, "tasks.onexReferralAt": new Date() } }
     );
-
     if (upd.modifiedCount === 0) {
-      return res.json({ ok:true, status: "already_completed" });
+      return res.json({ ok:true, status:"already_completed" });
     }
 
-    // Credit reward split (available + locked)
+    // 4) Начисляем награду (разделяем на доступную/заблокированную)
     await creditRewardUSD(String(telegramId), ONEX_TASK_REWARD_USD, ONEX_TASK_UNLOCK_USD);
 
     const fresh = await User.findOne({ telegramId: String(telegramId) });
-    return res.json({ ok:true, status: "rewarded", rewardUsd: ONEX_TASK_REWARD_USD, user: fresh });
+    return res.json({ ok:true, status:"rewarded", rewardUsd: ONEX_TASK_REWARD_USD, user: fresh });
   } catch (e) {
     console.error("/tasks/onex/verify error:", e);
-    return res.status(500).json({ ok:false, error: "Server error" });
+    return res.status(500).json({ ok:false, error:"Server error" });
   }
 });
+
+
 const TG_BOT_TOKEN    = process.env.TELEGRAM_BOT_TOKEN || "";
 const WEBAPP_URL      = process.env.WEBAPP_URL || "https://onex-gifts.vercel.app"; // твой фронт
 const START_BANNER_URL = process.env.START_BANNER_URL || ""; // URL картинки для /start (опционально)
