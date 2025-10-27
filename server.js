@@ -5,6 +5,7 @@ import cors from "cors";
 import User from "./models/User.js";
 import crypto from "node:crypto";
 import { Telegraf, Markup } from 'telegraf';
+const app = express();
 
 // ===== Telegram notifier helpers =====
 const NOTIFY_BOT_TOKEN = process.env.NOTIFY_BOT_TOKEN || "";
@@ -384,7 +385,6 @@ async function notifyWithdrawRequest(user, order) {
   }
 }
 
-const app = express();
 app.set("trust proxy", true);
 // 🔎 lightweight request logger (method + path)
 app.use((req, _res, next) => {
