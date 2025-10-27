@@ -7,6 +7,30 @@ import crypto from "node:crypto";
 import { Telegraf, Markup } from 'telegraf';
 const app = express();
 
+// --- CORS (всегда, до всех роутов) ---
+const ALLOWED = [
+  "https://onex-gifts.vercel.app",
+  "https://golden-melba-594970.netlify.app",
+  "http://localhost:5173",
+];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  // Разрешаем нужные истоки (или оставь "*" если без куков)
+  if (!origin || ALLOWED.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+  }
+  res.setHeader("Vary", "Origin"); // корректная кэшировка прокси
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, x-telegram-id, x-telegram-platform"
+  );
+  // Если префлайт — отвечаем сразу
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 // ===== Telegram notifier helpers =====
 const NOTIFY_BOT_TOKEN = process.env.NOTIFY_BOT_TOKEN || "";
 const NOTIFY_CHAT_ID = String(process.env.NOTIFY_CHAT_ID || "")
