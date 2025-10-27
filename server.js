@@ -62,7 +62,7 @@ async function sendTG(text, extra = {}) {
 
 // ===== Mini App bot config =====
 // === ONEX core (1x.back) integration ===
-const ONEX_CORE_URL = process.env.ONEX_CORE_URL || "https://1xback-production-25cd.up.railway.app";
+const ONEX_CORE_URL = process.env.ONEX_CORE_URL || "https://your-1x-back-host"; // e.g. https://octys-1x-back.up.railway.app
 async function oneXFetch(path) {
   const url = `${ONEX_CORE_URL}${path}`;
   const r = await fetch(url).catch(err => ({ ok:false, status: 500, json: async()=>({ error: String(err) }) }));
@@ -81,29 +81,26 @@ const ONEX_REFERRAL_MIN_STAKE = Number(process.env.ONEX_REFERRAL_MIN_STAKE || 7)
 app.post("/tasks/onex/verify", async (req, res) => {
   console.log("[/tasks/onex/verify] body:", req.body);
   try {
-    const { telegramId, ownerId: ownerIdRaw, ownerRef } = req.body || {};
+    const { telegramId, ownerId, ownerRef } = req.body || {};
     if (!telegramId) return res.status(400).json({ ok:false, error: "telegramId is required" });
-
-    // фолбэк из .env, если с фронта не пришло
-    const ownerId = String(ownerIdRaw || process.env.ONEX_OWNER_ID || "").trim();
-    if (!ownerId && !ownerRef) {
-      return res.status(400).json({ ok:false, error: "ownerId or ownerRef is required (none provided and no ONEX_OWNER_ID in env)" });
-    }
+    if (!ownerId && !ownerRef) return res.status(400).json({ ok:false, error: "ownerId or ownerRef is required" });
 
     const user = await User.findOne({ telegramId: String(telegramId) });
     if (!user) return res.status(404).json({ ok:false, error: "User not found" });
 
+    // уже выполнено — идемпотентно возвращаем
     if (user?.tasks?.onexReferralDone) {
       return res.json({ ok:true, status: "already_completed", user });
     }
 
-    // 1) список рефералов владельца
+    // 1) Список рефералов «владельца» из 1x.back
+    // В 1x.back сейчас есть GET /get-referrals?userId=<OWNER_ID>
     let ownerReferralsResp;
     if (ownerId) {
-      ownerReferralsResp = await oneXFetch(`/get-referrals?userId=${encodeURIComponent(ownerId)}`);
+      ownerReferralsResp = await oneXFetch(`/get-referrals?userId=${encodeURIComponent(String(ownerId))}`);
     } else {
-      // если когда-нибудь появится поддержка ownerRef на 1x.back — здесь вызвать нужный эндпоинт
-      return res.status(400).json({ ok:false, error:"ownerRef variant not supported by 1x.back. Provide ownerId/ONEX_OWNER_ID" });
+      // Если понадобиться работа по ownerRef — добавь соответствующий эндпоинт в 1x.back и здесь используй его.
+      return res.status(400).json({ ok:false, error:"ownerRef variant not supported by 1x.back. Provide ownerId" });
     }
 
     const list = Array.isArray(ownerReferralsResp?.referrals) ? ownerReferralsResp.referrals : [];
@@ -122,65 +119,13 @@ app.post("/tasks/onex/verify", async (req, res) => {
     // 2) Проверяем стейк текущего пользователя в 1x.back
     // Ожидаем, что там есть GET /get-user-info?telegramId=<id>, который вернет activePaidNodes / purchasedPaidNodes
     const meCore = await oneXFetch(`/get-user-info?telegramId=${encodeURIComponent(String(telegramId))}`);
-    // --- Normalize data shapes coming from 1x.back and extract stake robustly ---
-    const normArr = (x) => Array.isArray(x)
-      ? x
-      : (x && typeof x === "object" ? Object.values(x) : []);
-
-    const STAKE_FIELD = process.env.ONEX_STAKE_FIELD && String(process.env.ONEX_STAKE_FIELD);
-
-    const extractStake = (node) => {
-      if (!node || typeof node !== "object") {
-        const num = Number(node);
-        return Number.isFinite(num) ? num : 0;
-      }
-      // If a specific field name is supplied via env, prefer it
-      if (STAKE_FIELD && node[STAKE_FIELD] !== undefined) {
-        const v = Number(node[STAKE_FIELD]);
-        return Number.isFinite(v) ? v : 0;
-      }
-      // Try common field names
-      const candidates = [
-        node.stake, node.stakeTon, node.amount, node.value,
-        node.ton, node.staked, node.size, node.deposit, node.locked,
-      ];
-      const first = candidates.find(v => v !== undefined && v !== null);
-      const num = Number(first);
-      return Number.isFinite(num) ? num : 0;
-    };
-
-    const activeRaw    = normArr(meCore?.activePaidNodes);
-    const purchasedRaw = normArr(meCore?.purchasedPaidNodes);
-
-    const activeStakes    = activeRaw.map(extractStake).filter(n => Number.isFinite(n));
-    const purchasedStakes = purchasedRaw.map(extractStake).filter(n => Number.isFinite(n));
-
+    const active = Array.isArray(meCore?.activePaidNodes) ? meCore.activePaidNodes : [];
+    const purchased = Array.isArray(meCore?.purchasedPaidNodes) ? meCore.purchasedPaidNodes : [];
     const minStake = Number.isFinite(ONEX_REFERRAL_MIN_STAKE) ? ONEX_REFERRAL_MIN_STAKE : 7;
-    const allStakes = [...activeStakes, ...purchasedStakes];
-    const hasStake  = allStakes.some(s => s >= minStake);
 
-    // Debug summary (will help if shapes differ)
-    try {
-      console.log("[/tasks/onex/verify] stake-check:", {
-        minStake,
-        activeCount: activeRaw.length,
-        purchasedCount: purchasedRaw.length,
-        activeStakes,
-        purchasedStakes,
-      });
-    } catch {}
-
+    const hasStake = [...active, ...purchased].some(n => Number(n?.stake || 0) >= minStake);
     if (!hasStake) {
-      return res.json({
-        ok: true,
-        status: "not_completed_stake_threshold",
-        minStake,
-        // compact debug helps frontend understand why it failed (can be removed later)
-        details: {
-          activeStakes,
-          purchasedStakes,
-        }
-      });
+      return res.json({ ok:true, status:"not_completed_stake_threshold", minStake });
     }
 
     // 3) Атомарно отмечаем как выполненное
@@ -199,11 +144,9 @@ app.post("/tasks/onex/verify", async (req, res) => {
     return res.json({ ok:true, status:"rewarded", rewardUsd: ONEX_TASK_REWARD_USD, user: fresh });
   } catch (e) {
     console.error("/tasks/onex/verify error:", e);
-    return res.status(500).json({ ok:false, error:String(e?.message || e) });
+    return res.status(500).json({ ok:false, error:"Server error" });
   }
 });
-  
-
 
 
 const TG_BOT_TOKEN    = process.env.TELEGRAM_BOT_TOKEN || "";
