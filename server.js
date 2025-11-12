@@ -388,22 +388,6 @@ async function notifyJettonDeposit(user, { amountUsd, txId, isFirst } = {}) {
   await sendTG(text);
 }
 
-// ---- external notifier (notificationBot) ----
-const NOTIFY_API = (process.env.NOTIFY_BOT_URL || "").replace(/\/+$/,""); // .../notify-bot
-
-async function notifyExternal(type, payload = {}) {
-  if (!NOTIFY_API) return;
-  try {
-    await fetch(`${NOTIFY_API}/notify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, payload }),
-    });
-  } catch (e) {
-    console.error("notifyExternal error:", e);
-  }
-}
-
 // ===== Withdraw notification helpers =====
 function formatWithdrawText(user, order) {
   const u = user?.username ? `@${user.username}` : `id${user?.telegramId}`;
@@ -1720,8 +1704,6 @@ app.post("/postback/getbonus", async (req, res) => {
     return res.status(200).json({ ok:true }); // 200, чтобы они не ретраили
   }
 });
-
-
 
 // ✅ Запуск сервера
 const PORT = process.env.PORT || 8080;
