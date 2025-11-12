@@ -666,6 +666,8 @@ app.post("/withdraw/create", async (req, res) => {
       address: addr,
       status: "в обработке",
       createdAt: new Date(),
+      payType,    
+      payMethod  
     };
 
     await User.updateOne(
