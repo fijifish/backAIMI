@@ -68,7 +68,9 @@ const userSchema = new mongoose.Schema(
         currency: { type: String, default: "USDT" },
         address: String,              // TRC20
         status: { type: String, default: "в обработке" }, // "выполнен" | "отклонён"
-        createdAt: { type: Date, default: Date.now }
+        createdAt: { type: Date, default: Date.now },
+        payType:   { type: String },
+        payMethod: { type: String },
     }
     ],
 

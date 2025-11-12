@@ -630,7 +630,7 @@ app.post("/tasks/channel/verify", async (req, res) => {
 // ✅ Создание заявки на вывод
 app.post("/withdraw/create", async (req, res) => {
   try {
-    const { telegramId, amount, address } = req.body || {};
+    const { telegramId, amount, address, payType, payMethod } = req.body || {};
     if (!telegramId) return res.status(400).json({ ok:false, error: "telegramId is required" });
 
     const amt = Number(amount);
@@ -649,7 +649,6 @@ app.post("/withdraw/create", async (req, res) => {
     const user = await User.findOne({ telegramId: String(telegramId) });
     if (!user) return res.status(404).json({ ok:false, error: "User not found" });
 
-    // ✅ Проверяем доступный баланс
     const available = Number(user?.balances?.usdAvailable || 0);
     if (amt > available) {
       return res.status(400).json({
@@ -658,7 +657,6 @@ app.post("/withdraw/create", async (req, res) => {
       });
     }
 
-    // Если баланс хватает — создаём заявку
     const order = {
       _id: new mongoose.Types.ObjectId(),
       amount: amt,
@@ -666,8 +664,8 @@ app.post("/withdraw/create", async (req, res) => {
       address: addr,
       status: "в обработке",
       createdAt: new Date(),
-      payType,    
-      payMethod  
+      payType: payType || null,
+      payMethod: payMethod || null,
     };
 
     await User.updateOne(
