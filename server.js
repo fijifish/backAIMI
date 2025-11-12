@@ -464,6 +464,50 @@ async function notifyWithdrawRequest(user, order) {
   }
 }
 
+// POST /notify/onex
+// body: { type: "register"|"free"|"deposit", userId, username?, amount?, referredBy?, refCode?, inviterId? }
+app.post("/notify/onex", async (req, res) => {
+  try {
+    const { type, userId, username, amount, referredBy, refCode, inviterId } = req.body || {};
+    if (!type || !userId) return res.status(400).json({ ok:false, error: "type and userId required" });
+
+    // Опционально: фильтр по конкретному owner/ref (чтобы слать только рефералам VITE_ONEX_OWNER_REF)
+    const ONLY_OWNER_REF = process.env.ONLY_OWNER_REF || ""; // например X57Z7vwC
+    if (ONLY_OWNER_REF && refCode && String(refCode) !== String(ONLY_OWNER_REF)) {
+      // не тот реф — пропускаем
+      return res.json({ ok:true, skipped: true, reason: "not owner ref" });
+    }
+
+    const uPretty = username ? `@${username}` : `id${userId}`;
+    const when = new Date().toLocaleString("ru-RU");
+    let text = "";
+
+    if (type === "register" || type === "registration") {
+      text = `🆕 <b>Регистрация в ONEX</b>\n\n• ${uPretty}\n• userId: <code>${userId}</code>\n${referredBy ? `• referredBy: ${referredBy}\n` : ""}\n🕒 ${when}`;
+    } else if (type === "free" || type === "free_farming" || type === "free_start") {
+      text = `✅ <b>Активирован БЕСПЛАТНЫЙ фарминг в ONEX</b>\n\n• ${uPretty}\n• userId: <code>${userId}</code>\n${referredBy ? `• referredBy: ${referredBy}\n` : ""}\n🕒 ${when}`;
+    } else if (type === "deposit" || type === "deposit_onex") {
+      const amt = (Number(amount) && Number(amount) > 0) ? Number(amount) : "n/a";
+      text = `💳 <b>Депозит в ONEX</b>\n\n• ${uPretty}\n• userId: <code>${userId}</code>\n• Сумма: <b>${amt}</b>\n${referredBy ? `• referredBy: ${referredBy}\n` : ""}\n🕒 ${when}`;
+    } else {
+      // fallback
+      text = `ℹ️ ONEX notify: <code>${type}</code>\n\n• ${uPretty}\n• payload: ${JSON.stringify({ amount, referredBy, refCode, inviterId })}\n\n🕒 ${when}`;
+    }
+
+    // Если нужно — можно добавить inline keyboard (например ссылка на профиль)
+    try {
+      await sendTG(text);
+      return res.json({ ok:true, sent:true });
+    } catch (e) {
+      console.error("notify/onex sendTG failed:", e);
+      return res.status(500).json({ ok:false, error:"send failed" });
+    }
+  } catch (e) {
+    console.error("/notify/onex error:", e);
+    return res.status(500).json({ ok:false, error:"Server error" });
+  }
+});
+
 app.set("trust proxy", true);
 // 🔎 lightweight request logger (method + path)
 app.use((req, _res, next) => {
