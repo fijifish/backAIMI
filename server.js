@@ -62,10 +62,17 @@ async function sendTG(text, extra = {}) {
 
 // ===== Mini App bot config =====
 // === ONEX core (1x.back) integration ===
-const ONEX_CORE_URL = process.env.ONEX_CORE_URL || ""; 
-async function oneXFetch(path) {
+const ONEX_CORE_URL = process.env.ONEX_CORE_URL || "";
+/**
+ * Lightweight fetch to 1x.back. Supports GET/POST.
+ */
+async function oneXFetch(path, { method = "GET", body } = {}) {
   const url = `${ONEX_CORE_URL}${path}`;
-  const r = await fetch(url).catch(err => ({ ok:false, status: 500, json: async()=>({ error: String(err) }) }));
+  const r = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  }).catch(err => ({ ok:false, status: 500, json: async()=>({ error: String(err) }) }));
   if (!r.ok) {
     const data = await r.json().catch(()=>({}));
     throw new Error(`oneX ${r.status} ${JSON.stringify(data)}`);
@@ -109,6 +116,24 @@ app.post("/tasks/onex/verify", async (req, res) => {
 
     if (!isReferred) {
       return res.json({ ok:true, status: "not_found_in_owner_referrals" });
+    }
+
+    // 🔒 Extra condition: freeOnex must be either "таймер" or "зафармлено" in the ONEX core DB
+    let freeOnexState = null;
+    try {
+      const farmingPath = process.env.ONEX_CORE_FARM_STATUS_PATH || "/get-farming-status"; // 1x.back endpoint
+      const farm = await oneXFetch(farmingPath, {
+        method: "POST",
+        body: { userId: String(telegramId) },
+      });
+      freeOnexState = String(farm?.freeOnex || farm?.status || "").toLowerCase();
+    } catch (e) {
+      console.warn("oneX farming status check failed:", e?.message || e);
+    }
+
+    const farmOk = freeOnexState === "таймер" || freeOnexState === "зафармлено";
+    if (!farmOk) {
+      return res.json({ ok: true, status: "not_completed_farming_required", freeOnex: freeOnexState });
     }
 
     // Atomically mark as done (no money yet) — prevent double-claim
