@@ -1721,46 +1721,7 @@ app.post("/postback/getbonus", async (req, res) => {
   }
 });
 
-// GET /track/onex?telegramId=...&username=...&referredBy=...&to=https%3A%2F%2Ft.me%2Fonex_ton_bot%3Fstart%3DXXXX
-app.get("/track/onex", async (req, res) => {
-  try {
-    const telegramId = String(req.query.telegramId || "");
-    const username   = String(req.query.username   || "");
-    const referredBy = String(req.query.referredBy || ""); // кто пригласил в AIMI (если есть)
-    const to         = String(req.query.to || "");         // конечная ссылка на ONEX (закодированная)
 
-    // отправим в нотификатор факт открытия ONEX по кнопке
-    if (telegramId) {
-      await notifyExternal("start", { userId: telegramId, username, referredBy });
-    }
-
-    // редирект
-    if (to) return res.redirect(to);
-
-    // запасной вариант с ENV, если не передали ?to=
-    const base = process.env.ONEX_BOT_URL || "https://t.me/onex_ton_bot";
-    const ref  = process.env.ONEX_OWNER_REF || process.env.VITE_ONEX_OWNER_REF || "";
-    const u = new URL(base);
-    if (ref) u.searchParams.set("start", ref);
-    return res.redirect(u.toString());
-  } catch (e) {
-    console.error("/track/onex error:", e);
-    return res.redirect("https://t.me/onex_ton_bot");
-  }
-});
-
-// POST /notify/onex  { type: "free"|"deposit"|"paid", userId, username, amount?, referredBy?, refCode?, inviterId? }
-app.post("/notify/onex", async (req, res) => {
-  try {
-    const { type, ...payload } = req.body || {};
-    if (!type) return res.status(400).json({ ok:false, error:"type required" });
-    await notifyExternal(type, payload);
-    res.json({ ok:true });
-  } catch (e) {
-    console.error("/notify/onex error:", e);
-    res.status(500).json({ ok:false });
-  }
-});
 
 // ✅ Запуск сервера
 const PORT = process.env.PORT || 8080;
