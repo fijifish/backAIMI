@@ -62,7 +62,7 @@ async function sendTG(text, extra = {}) {
 
 // ===== Mini App bot config =====
 // === ONEX core (1x.back) integration ===
-const ONEX_CORE_URL = process.env.ONEX_CORE_URL || "https://your-1x-back-host"; // e.g. https://octys-1x-back.up.railway.app
+const ONEX_CORE_URL = process.env.ONEX_CORE_URL || ""; 
 async function oneXFetch(path) {
   const url = `${ONEX_CORE_URL}${path}`;
   const r = await fetch(url).catch(err => ({ ok:false, status: 500, json: async()=>({ error: String(err) }) }));
@@ -131,6 +131,7 @@ app.post("/tasks/onex/verify", async (req, res) => {
     return res.status(500).json({ ok:false, error: "Server error" });
   }
 });
+
 const TG_BOT_TOKEN    = process.env.TELEGRAM_BOT_TOKEN || "";
 const WEBAPP_URL      = process.env.WEBAPP_URL || "https://onex-gifts.vercel.app"; // твой фронт
 const START_BANNER_URL = process.env.START_BANNER_URL || ""; // URL картинки для /start (опционально)
