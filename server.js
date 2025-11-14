@@ -1705,7 +1705,7 @@ app.post("/postback/getbonus", async (req, res) => {
   }
 });
 
- const TADDY_REWARD_USD = Number(process.env.TADDY_REWARD_USD || 5);   // сколько $ даём за Тедди
+const TADDY_REWARD_USD = Number(process.env.TADDY_REWARD_USD || 5);   // сколько $ даём за Тедди
 const TADDY_UNLOCK_USD = Number(process.env.TADDY_UNLOCK_USD || 5);   // сколько из них сразу в доступный баланс
 
 app.post("/tasks/taddy/complete", async (req, res) => {
