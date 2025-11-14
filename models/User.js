@@ -31,6 +31,9 @@ const userSchema = new mongoose.Schema(
       mostbetRewardedAt: { type: Date,    default: null },
       onexReferralDone:  { type: Boolean, default: false },
       onexReferralAt:    { type: Date,    default: null },
+      // ⬇️ добавляем
+      taddyCompleted:    { type: Boolean, default: false },
+      taddyRewardUsd:    { type: Number,  default: 0 },
 
       // Карта состояний задач GetBonus: ключ = taskId (строка/число), значение = GbTaskStateSchema
       gb: {

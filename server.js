@@ -1705,6 +1705,64 @@ app.post("/postback/getbonus", async (req, res) => {
   }
 });
 
+ const TADDY_REWARD_USD = Number(process.env.TADDY_REWARD_USD || 5);   // сколько $ даём за Тедди
+const TADDY_UNLOCK_USD = Number(process.env.TADDY_UNLOCK_USD || 5);   // сколько из них сразу в доступный баланс
+
+app.post("/tasks/taddy/complete", async (req, res) => {
+  try {
+    const { telegramId, amountUsd } = req.body || {};
+    if (!telegramId) {
+      return res.status(400).json({ ok:false, error: "telegramId is required" });
+    }
+
+    const user = await User.findOne({ telegramId: String(telegramId) });
+    if (!user) {
+      return res.status(404).json({ ok:false, error: "User not found" });
+    }
+
+    // уже было выдано — просто возвращаем
+    if (user?.tasks?.taddyCompleted) {
+      return res.json({
+        ok: true,
+        status: "already_completed",
+        rewardUsd: user.tasks.taddyRewardUsd || 0,
+        user,
+      });
+    }
+
+    // какую награду давать
+    const rewardUsdRaw = Number.isFinite(Number(amountUsd)) && Number(amountUsd) > 0
+      ? Number(amountUsd)
+      : TADDY_REWARD_USD;
+
+    // начисляем (часть в доступный, часть в заблокированный баланс)
+    await creditRewardUSD(String(telegramId), rewardUsdRaw, TADDY_UNLOCK_USD);
+
+    // помечаем задачу как выполненную
+    await User.updateOne(
+      { telegramId: String(telegramId) },
+      {
+        $set: {
+          "tasks.taddyCompleted": true,
+          "tasks.taddyRewardUsd": rewardUsdRaw,
+          "tasks.taddyCompletedAt": new Date(),
+        }
+      }
+    );
+
+    const fresh = await User.findOne({ telegramId: String(telegramId) });
+    return res.json({
+      ok: true,
+      status: "rewarded",
+      rewardUsd: rewardUsdRaw,
+      user: fresh,
+    });
+  } catch (e) {
+    console.error("/tasks/taddy/complete error:", e);
+    return res.status(500).json({ ok:false, error: "Server error" });
+  }
+});
+
 // ✅ Запуск сервера
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
